@@ -37,26 +37,4 @@ def alberi_preprocess():
     return ds
 
 
-def tropomi_l3_extract():
-    HCHO_DATA_DIR = f"/mnt/dg3/ngoc/obs_data/mon_TROPOMI_HCHO_L3/"
-    RAW_HCHO_LIST = glob.glob(os.path.join(HCHO_DATA_DIR, "ORG", "*.nc"))
-    vars = ["tropospheric_HCHO_column_number_density_clear", "qa_L3", "land_water_mask"]
-    var_name = "hcho"
-    m_name = "BIRA-TROPOMI-L3"
-    time = "20180601-20240701"
-    final_ds = []
-    for f in RAW_HCHO_LIST:
-        ds = xr.open_dataset(f)
-        ds = ds[vars]
-        final_ds.append(ds)
-    final_ds = xr.concat(final_ds, dim="time")
-    final_ds = final_ds.sortby("time")
-    final_ds = final_ds.rename(
-        {"tropospheric_HCHO_column_number_density_clear": "hcho_vcd"}
-    )
-    final_ds.to_netcdf(
-        f"{HCHO_DATA_DIR}/EXTRACT/{var_name}_AERmon_{m_name}_historical_gn_{time}.nc"
-    )
-
-
 # %%

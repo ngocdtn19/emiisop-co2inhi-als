@@ -67,7 +67,7 @@ def plt_mean_glob_pd(emiisop):
     model_names = list(emiisop.multi_models.keys())
     df = pd.DataFrame()
     for name in model_names:
-        df[name] = emiisop.multi_models[name].global_rate.sel(year=slice(2001, 2018))
+        df[name] = emiisop.multi_models[name].global_rate.sel(year=slice(2018, 2023))
     fig, ax = plt.subplots(figsize=(6, 5.5), layout="constrained")
     sns.barplot(
         df,
@@ -104,7 +104,7 @@ def plt_regional_contri(emiisop):
                 [
                     emiisop.multi_models[name]
                     .regional_rate[roi]
-                    .sel(year=slice(2001, 2018))
+                    .sel(year=slice(2018, 2023))
                     .mean()
                     .item()
                     for name in model_names
@@ -156,12 +156,12 @@ def plt_glob_present_map(emiisop, cmap="bwr"):
         if m != "VISIT-woCO2inhi":
             data1 = (
                 emiisop.multi_models[m]
-                .annual_per_area_unit.sel(year=slice(2001, 2018))
+                .annual_per_area_unit.sel(year=slice(2018, 2023))
                 .mean("year")
             )
             data0 = (
                 emiisop.multi_models["VISIT-woCO2inhi"]
-                .annual_per_area_unit.sel(year=slice(2001, 2018))
+                .annual_per_area_unit.sel(year=slice(2018, 2023))
                 .mean("year")
             )
             data = (data1 - data0) * emiisop.multi_models[m].ds_mask["mask"]
@@ -285,8 +285,13 @@ def plt_reg_annual_variation(emiisop):
     lss = ["-", "-.", "-", "--", "-", "-"]
     ls_dict = {m_name: c for m_name, c in zip(model_names, lss[: len(model_names)])}
     roi_ds = {}
-    for roi in LIST_REGION:
-        fig, ax = plt.subplots(figsize=(10.5, 6.5), layout="constrained")
+
+    fig, axis = plt.subplots(3, 3, figsize=(3.5 * 3, 3.6 * 3), layout="constrained")
+
+    for i, roi in enumerate(LIST_REGION):
+        ri, ci = i // 3, i % 3
+        ax = axis[ri, ci]
+
         axbox = ax.get_position()
         roi_ds[roi] = []
         years = []
@@ -305,17 +310,30 @@ def plt_reg_annual_variation(emiisop):
         ax.set_title(f"{roi}", fontsize=title_sz)
         # ax.set_xlabel("Year")
         ax.set_ylabel(VIZ_OPT["emiisop"]["line_bar_unit"])
-        ax.legend(
-            loc="center",
-            ncol=3,
-            bbox_to_anchor=[axbox.x0 + 0.5 * axbox.width, axbox.y0 - 0.25],
-            fontsize=legend_sz,
-        )
+        # if ri == 2 and ci ==1:
+        #     ax.legend(
+        #         loc="center",
+        #         ncol=3,
+        #         bbox_to_anchor=[axbox.x0 + 0.5 * axbox.width, axbox.y0 - 0.25],
+        #         fontsize=legend_sz,
+        #     )
+
+    handles, labels = ax.get_legend_handles_labels()
+    fig.legend(
+        handles,
+        labels,
+        ncol=3,
+        loc="center",
+        bbox_to_anchor=(0.5, -0.05),
+    )
+    plt.rcParams.update({"font.size": legend_sz})
 
 
 def cal_org_trends_map(var_obj, var_name, model_name):
     file_mk_org = os.path.join(
-        DATA_DIR, "processed_org_data/mk_trends_map", f"{model_name}_{var_name}.nc"
+        DATA_DIR,
+        "processed_org_data/mk_trends_map/1901-2023/",
+        f"{model_name}_{var_name}.nc",
     )
     if not os.path.exists(file_mk_org):
         annual_ds = var_obj.multi_models[model_name].annual_per_area_unit

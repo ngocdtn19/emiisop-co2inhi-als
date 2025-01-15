@@ -31,7 +31,8 @@ MG_2_G = 1e-6  # convert from micro gram to gram
 MG_2_TG = 1e-18  # convert from micro gram to Teragram
 
 REGION = regionmask.defined_regions.srex
-LIST_REGION = [REGION.regions[i].abbrev for i in REGION.regions.keys()]
+# LIST_REGION = [REGION.regions[i].abbrev for i in REGION.regions.keys()]
+LIST_REGION = ["AMZ", "ENA", "SAF", "MED", "CEU", "EAS", "SAS", "SEA", "NAU"]
 LIST_COLOR = [
     "#ff5005",
     "#ffe100",
