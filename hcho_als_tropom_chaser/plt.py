@@ -14,7 +14,7 @@ ORG_CHASER_DIR = "/mnt/dg3/ngoc/CHASER_output"
 AKED_DIR = "/mnt/dg3/ngoc/emiisop_co2inhi_als/data/hcho_sat_ak_applied"
 
 SAT_NAMES = ["TROPO", "OMI"]
-CASES = [f.split("/")[-1] for f in glob(f"{ORG_CHASER_DIR}/*20012023_nudg")]
+CASES = [f.split("/")[-1] for f in glob(f"{ORG_CHASER_DIR}/*20017023_nudg")]
 
 
 # SATELLITE SETTING
@@ -48,7 +48,7 @@ def list_all_files(base_dir):
     return all_files
 
 
-def plt_reg(sat="tropo", mode="ss"):
+def plt_reg(sat="tropo"):
     # initial vars
     base_dir = "/mnt/dg3/ngoc/emiisop_co2inhi_als/data/hcho_sat_ak_applied/"
     files = list_all_files(base_dir)
@@ -56,8 +56,8 @@ def plt_reg(sat="tropo", mode="ss"):
     obs = HCHO(TROPO_FILE) if sat == "tropo" else HCHO(OMI_FILE)
 
     ak_files = [f for f in files if sat in f]
-    interp_files = [f for f in ak_files if "/sat_interp/" in f]
-    nointerp_files = [f for f in ak_files if "/no_sat_interp/" in f]
+    interp_files = [f for f in ak_files if "/sat_interp/" in f][:1]
+    nointerp_files = [f for f in ak_files if "/no_sat_interp/" in f][:1]
 
     hcho_interp = {Path(f).parents[1].name: HCHO(f) for f in interp_files}
     hcho_nointerp = {Path(f).parents[1].name: HCHO(f) for f in nointerp_files}
@@ -65,44 +65,45 @@ def plt_reg(sat="tropo", mode="ss"):
     hcho_nointerp["OBS"] = obs
 
     list_regions = ["AMZ", "ENA", "SAF", "MED", "CEU", "EAS", "SAS", "SEA", "NAU"]
-    index = "month" if mode == "ss" else "year"
-    tits = ["Interp", "No_interp"]
+    tits = ["Temp/HCHO Interpolated by Satellite Pressure", "No Interpolation"]
 
-    for k, hcho in enumerate([hcho_interp, hcho_nointerp]):
-        fig, axis = plt.subplots(3, 3, figsize=(3 * 3, 3 * 3), layout="constrained")
+    for mode in ["ss", "ann"]:
+        index = "month" if mode == "ss" else "year"
+        for k, hcho in enumerate([hcho_interp, hcho_nointerp]):
+            fig, axis = plt.subplots(3, 3, figsize=(3 * 3, 3 * 3), layout="constrained")
 
-        for i, r in enumerate(list_regions):
-            ri, ci = i // 3, i % 3
-            ax = axis[ri, ci]
-            for j, c in enumerate(list(hcho_interp.keys())[::-1]):
-                ds = hcho[c].reg_ss if mode == "ss" else hcho[c].reg_ann
-                reg_df = ds[[index, r]].set_index(index).rename(columns={r: c})
-                sns.lineplot(
-                    reg_df,
-                    ax=ax,
-                    palette=[colors[j]],
-                    markers=True,
-                    lw=2,
-                )
-            handles, labels = ax.get_legend_handles_labels()
-            ax.get_legend().remove()
-            ax.set_xlabel("Year")
-            if mode == "ss":
-                ax.set_xlabel("Month")
-                ax.set_xticks(np.arange(1, 13))
-            if ri < 2:
-                ax.set_xlabel("")
-            ax.set_ylabel("(\u00d710$^{15}$ molec.cm$^{-2}$)")
-            ax.set_title(f"{r}")
+            for i, r in enumerate(list_regions):
+                ri, ci = i // 3, i % 3
+                ax = axis[ri, ci]
+                for j, c in enumerate(list(hcho_interp.keys())[::-1]):
+                    ds = hcho[c].reg_ss if mode == "ss" else hcho[c].reg_ann
+                    reg_df = ds[[index, r]].set_index(index).rename(columns={r: c})
+                    sns.lineplot(
+                        reg_df,
+                        ax=ax,
+                        palette=[colors[j]],
+                        markers=True,
+                        lw=2,
+                    )
+                handles, labels = ax.get_legend_handles_labels()
+                ax.get_legend().remove()
+                ax.set_xlabel("Year")
+                if mode == "ss":
+                    ax.set_xlabel("Month")
+                    ax.set_xticks(np.arange(1, 13))
+                if ri < 2:
+                    ax.set_xlabel("")
+                ax.set_ylabel("(\u00d710$^{15}$ molec.cm$^{-2}$)")
+                ax.set_title(f"{r}")
 
-        fig.legend(
-            handles,
-            labels,
-            ncol=3,
-            loc="center",
-            bbox_to_anchor=(0.5, -0.06),
-        )
-        plt.suptitle(tits[k], fontsize=16, fontweight="bold")
+            fig.legend(
+                handles,
+                labels,
+                ncol=3,
+                loc="center",
+                bbox_to_anchor=(0.5, -0.06),
+            )
+            plt.suptitle(tits[k], fontsize=16, fontweight="bold")
 
 
 def plt_map_mean_year():

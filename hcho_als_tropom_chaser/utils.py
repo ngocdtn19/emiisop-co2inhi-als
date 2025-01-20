@@ -132,6 +132,7 @@ class HCHO:
         if "tcolhcho" in list(self.ds.data_vars):
             self.ds = self.ds.rename({"tcolhcho": "hcho"})
 
+        # self.ds = self.ds.fillna(0)
         self.hcho = self.ds["hcho"] * 1e-15
 
         self.cal_weights()
@@ -185,7 +186,6 @@ class HCHO:
                 ds_month = ds_y.sel(time=(ds_y.time.dt.month == m))
                 # cal global hcho
                 hcho_m_w = ds_month.weighted(weights).mean(skipna=True).item()
-                # hcho_m_w = ds_month.mean(skipna=True).item()
                 hcho_glob.append(hcho_m_w)
                 # cal regional hcho
                 for r in list_srex_regs:
@@ -196,9 +196,13 @@ class HCHO:
                     hcho_reg[r].append(hcho_m_w_r)
 
             for r in list_srex_regs:
-                reg_hcho_ann[r].append(np.nanmean(np.array(hcho_reg[r])))
+                data_r = np.array(hcho_reg[r])
+                valid_r = data_r[(data_r != 0) & ~np.isnan(data_r)]
+                reg_hcho_ann[r].append(np.mean(valid_r))
 
-            glob_hcho_ann["avg_glob_ann"].append(np.nanmean(np.array(hcho_glob)))
+            data_glob = np.array(hcho_glob)
+            valid_glob = data_glob[(data_glob != 0) & ~np.isnan(data_glob)]
+            glob_hcho_ann["avg_glob_ann"].append(np.mean(valid_glob))
 
         # cal reg hcho for reg
         for r in list_srex_regs:

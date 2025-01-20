@@ -9,6 +9,10 @@ import pygtool
 import xarray as xr
 import pandas as pd
 import numpy as np
+import pickle
+import matplotlib.pyplot as plt
+
+from sklearn.ensemble import RandomForestRegressor
 
 from scipy.interpolate import interp1d
 from utils import *
@@ -16,8 +20,8 @@ from utils import *
 geogrid = pygtool.readgrid()
 Clon, Clat = geogrid.getlonlat()
 BASE_DIR = "/mnt/dg3/ngoc/CHASER_output"
-# CASES = [f.split("/")[-1] for f in glob(f"{BASE_DIR}/*20012023_nudg")]
-CASES = ["VISIT20172023_no_nudg", "UKpft20172023_no_nudg"]
+CASES = [f.split("/")[-1] for f in glob(f"{BASE_DIR}/*20012023_nudg")]
+# CASES = ["VISIT20172023_no_nudg", "UKpft20172023_no_nudg"]
 SIGMA = load_sigma()
 
 # step 1
@@ -109,12 +113,15 @@ def sampling_12to14h():
 
 
 def extract_layer_sat_ps(ds):
+    ds = ds.where(np.isfinite(ds), np.nan)
+
     layers = []
     surf_p = ds["surface_pressure"].values
     layers.append(surf_p)
 
     sigma_a = ds["ctm_sigma_a"].values
     sigma_b = ds["ctm_sigma_b"].values
+
     for l in range(len(sigma_a)):
         l_p = surf_p * sigma_b[l] + sigma_a[l]
         layers.append(l_p)
@@ -139,6 +146,44 @@ def extract_layer_sat_ps(ds):
 
 def interpolate_to_sat_ps(c_t, c_ch2o, c_ps, sat_ps, case):
 
+    def reg_t_ch2o(chaser_ds, sat_ps):
+        ft_cols = ["lat", "lon", "year", "month"]
+        dims = ["time", "lat", "lon", "sat_layer"]
+
+        chaser_df = chaser_ds.to_dataframe().reset_index().fillna(0)
+        sat_ps_df = sat_ps.to_dataframe().reset_index().fillna(0)
+
+        chaser_df["month"] = chaser_df["time"].dt.month
+        chaser_df["year"] = chaser_df["time"].dt.year
+
+        sat_ps_df["month"] = sat_ps_df["time"].dt.month
+        sat_ps_df["year"] = sat_ps_df["time"].dt.year
+
+        X_train = chaser_df[ft_cols + ["PS"]]
+        y_train_t = chaser_df["T"]
+        y_train_ch2o = chaser_df["CH2O"]
+
+        X_pred = sat_ps_df[ft_cols + ["layer_pressure"]]
+
+        RF_temp = RandomForestRegressor(n_estimators=100)
+        RF_ch2o = RandomForestRegressor(n_estimators=100)
+
+        RF_temp.fit(X_train, y_train_t)
+        with open(f"./pkl/{case}_temp.pkl", "wb") as file:
+            pickle.dump(RF_temp, file)
+        print(f"Saved {case} temp")
+
+        RF_ch2o.fit(X_train, y_train_ch2o)
+        with open(f"./pkl/{case}_ch2o.pkl", "wb") as file:
+            pickle.dump(RF_ch2o, file)
+        print(f"Saved {case} ch2o")
+
+        sat_ps_df["reg_T"] = RF_temp.predict(X_pred)
+        sat_ps_df["reg_CH2O"] = RF_ch2o.predict(X_pred)
+
+        reg_sat_ds = sat_ps_df.groupby(dims).mean().to_xarray()
+        return reg_sat_ds["reg_T"], reg_sat_ds["reg_CH2O"]
+
     def interp_t_ch2o(temp, hcho, old_p, new_p):
         """
         Interpolate temperature and hcho to new pressure levels for each point.
@@ -159,8 +204,7 @@ def interpolate_to_sat_ps(c_t, c_ch2o, c_ps, sat_ps, case):
         return new_temp, new_hcho
 
     def plot_interp(interp_t_df, interp_hcho_df, sat_ps_df, chaser_df, case):
-        import matplotlib.pyplot as plt
-
+        
         fig, axes = plt.subplots(1, 3, figsize=(15, 5))
         tits = ["Temp", "HCHO", "Pressure"]
         sat_cols = ["interp_t", "interp_hcho", "layer_pressure"]
@@ -200,6 +244,7 @@ def interpolate_to_sat_ps(c_t, c_ch2o, c_ps, sat_ps, case):
             "layer": np.arange(len(c_t.layer.values)),
         },
     )
+    sat_intep_temp, sat_interp_hcho = reg_t_ch2o(ds, sat_ps)
     sat_intep_temp, sat_interp_hcho = xr.apply_ufunc(
         interp_t_ch2o,
         ds["T"],
@@ -215,20 +260,20 @@ def interpolate_to_sat_ps(c_t, c_ch2o, c_ps, sat_ps, case):
     sat_intep_temp = sat_intep_temp.where(np.isfinite(sat_intep_temp), np.nan)
     sat_interp_hcho = sat_interp_hcho.where(np.isfinite(sat_interp_hcho), np.nan)
 
-    # global mean plot checking
-    sat_levels = sat_ps["layer_pressure"].values.shape[-1]
-    sat_intep_temp["sat_layer"] = np.arange(sat_levels)
-    sat_interp_hcho["sat_layer"] = np.arange(sat_levels)
+    # # global mean plot checking
+    # sat_levels = sat_ps["layer_pressure"].values.shape[-1]
+    # sat_intep_temp["sat_layer"] = np.arange(sat_levels)
+    # sat_interp_hcho["sat_layer"] = np.arange(sat_levels)
 
-    dims = ["time", "lat", "lon"]
+    # dims = ["time", "lat", "lon"]
 
-    interp_t_df = sat_intep_temp.mean(dims).to_dataframe(name="interp_t")
-    interp_hcho_df = sat_interp_hcho.mean(dims).to_dataframe(name="interp_hcho")
-    sat_ps_df = sat_ps.mean(dims).to_dataframe()
+    # interp_t_df = sat_intep_temp.mean(dims).to_dataframe(name="interp_t")
+    # interp_hcho_df = sat_interp_hcho.mean(dims).to_dataframe(name="interp_hcho")
+    # sat_ps_df = sat_ps.mean(dims).to_dataframe()
 
-    chaser_df = ds.mean(dims).to_dataframe()
+    # chaser_df = ds.mean(dims).to_dataframe()
 
-    plot_interp(interp_t_df, interp_hcho_df, sat_ps_df, chaser_df, case)
+    # plot_interp(interp_t_df, interp_hcho_df, sat_ps_df, chaser_df, case)
     return sat_intep_temp, sat_interp_hcho
 
 
@@ -251,6 +296,7 @@ def ak_apply_chaser(
 
     c_time = Ctemp_filtered.time.values
     sat_filtered = sat_ds.sel(time=(sat_ds.time.isin(c_time)))
+    sat_filtered = sat_filtered.where(np.isfinite(sat_filtered), np.nan)
     sat_pressure = sat_pressure.where(np.isfinite(sat_pressure), np.nan)
     sat_ps_filtered = sat_pressure.sel(time=(sat_pressure.time.isin(c_time)))
 
@@ -272,6 +318,14 @@ def ak_apply_chaser(
     if sat_interp:
         c_temp = sat_intep_temp.values  # (time, lat, lon, layer)
         c_ch2o = sat_interp_hcho.values  # (time, lat, lon, layer)
+
+        fig, axis = plt.subplots(1, 2, figsize=(3 * 3, 3 * 3), layout="constrained")
+        sat_intep_temp.mean(["lat", "lon", "sat_layer"]).to_dataframe(name="sat_temp").plot.line(ax=axis[0], color="red")
+        Ctemp_filtered.mean(["lat", "lon", "layer"]).to_dataframe().plot.line(ax=axis[0], color="blue")
+
+        sat_interp_hcho.mean(["lat", "lon", "sat_layer"]).to_dataframe(name="sat_hcho").plot.line(ax=axis[1], color="red")
+        Cch2o_filtered.mean(["lat", "lon", "layer"]).to_dataframe().plot.line(ax=axis[1], color="blue")
+
 
     hcho_layers = []
     for l in range(sat_ak.shape[-1]):
@@ -305,7 +359,7 @@ def ak_apply_chaser(
         },
     )
 
-    return hcho_ds["hcho"].sum("layer")
+    return hcho_ds["hcho"].sum("layer", skipna=True)
 
 
 def ak_apply_to_chaser_do():
@@ -324,11 +378,11 @@ def ak_apply_to_chaser_do():
     ds_omi = xr.open_dataset(omi_file)
     omi_pressure = extract_layer_sat_ps(ds_omi)
 
-    ds_tropo = xr.open_dataset(tropo_file)
-    tropo_pressure = extract_layer_sat_ps(ds_tropo)
+    # ds_tropo = xr.open_dataset(tropo_file)
+    # tropo_pressure = extract_layer_sat_ps(ds_tropo)
 
-    for sat_interp in [True, False]:
-        for case in CASES:
+    for sat_interp in [True]:
+        for case in CASES[:1]:
             # case = "MIXpft20012023_nudg"
 
             chaser_case_dir = f"{BASE_DIR}/sample_12to14h/{case}"
@@ -355,15 +409,15 @@ def ak_apply_to_chaser_do():
             )
             ps_ds = ps_ds.rename({list(ps_ds.data_vars)[0]: "PS"})
 
-            ch2o_tropo_ak = ak_apply_chaser(
-                ds_tropo,
-                t_ds,
-                ch2o_ds,
-                ps_ds,
-                tropo_pressure,
-                f"{case}_TROPO",
-                sat_interp,
-            )
+            # ch2o_tropo_ak = ak_apply_chaser(
+            #     ds_tropo,
+            #     t_ds,
+            #     ch2o_ds,
+            #     ps_ds,
+            #     tropo_pressure,
+            #     f"{case}_TROPO",
+            #     sat_interp,
+            # )
             ch2o_omi_ak = ak_apply_chaser(
                 ds_omi, t_ds, ch2o_ds, ps_ds, omi_pressure, f"{case}_OMI", sat_interp
             )
@@ -378,7 +432,7 @@ def ak_apply_to_chaser_do():
 
             print(case, interp_folder)
 
-            ch2o_tropo_ak.to_netcdf(f"{out_dir_case}/tropo_ak_hcho.nc")
+            # ch2o_tropo_ak.to_netcdf(f"{out_dir_case}/tropo_ak_hcho.nc")
             ch2o_omi_ak.to_netcdf(f"{out_dir_case}/omi_ak_hcho.nc")
 
 
