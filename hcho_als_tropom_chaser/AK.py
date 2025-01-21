@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt
 
 from sklearn.ensemble import RandomForestRegressor
 
-from scipy.interpolate import interp1d
+from scipy.interpolate import interp1d, InterpolatedUnivariateSpline
 from utils import *
 
 geogrid = pygtool.readgrid()
@@ -244,7 +244,7 @@ def interpolate_to_sat_ps(c_t, c_ch2o, c_ps, sat_ps, case):
             "layer": np.arange(len(c_t.layer.values)),
         },
     )
-    sat_intep_temp, sat_interp_hcho = reg_t_ch2o(ds, sat_ps)
+    # sat_intep_temp, sat_interp_hcho = reg_t_ch2o(ds, sat_ps)
     sat_intep_temp, sat_interp_hcho = xr.apply_ufunc(
         interp_t_ch2o,
         ds["T"],
@@ -319,12 +319,17 @@ def ak_apply_chaser(
         c_temp = sat_intep_temp.values  # (time, lat, lon, layer)
         c_ch2o = sat_interp_hcho.values  # (time, lat, lon, layer)
 
-        fig, axis = plt.subplots(1, 2, figsize=(3 * 3, 3 * 3), layout="constrained")
-        sat_intep_temp.mean(["lat", "lon", "sat_layer"]).to_dataframe(name="sat_temp").plot.line(ax=axis[0], color="red")
-        Ctemp_filtered.mean(["lat", "lon", "layer"]).to_dataframe().plot.line(ax=axis[0], color="blue")
+        fig, axis = plt.subplots(1, 3, figsize=(4 * 3, 4.2), layout="constrained")
+        sat_intep_temp.mean(["lat", "lon", "sat_layer"]).to_dataframe(name="Sat_interp_temp").plot.line(ax=axis[0], color="red")
+        Ctemp_filtered.rename({"T":"Chaser_temp"}).mean(["lat", "lon", "layer"]).to_dataframe().plot.line(ax=axis[0], color="blue")
 
-        sat_interp_hcho.mean(["lat", "lon", "sat_layer"]).to_dataframe(name="sat_hcho").plot.line(ax=axis[1], color="red")
-        Cch2o_filtered.mean(["lat", "lon", "layer"]).to_dataframe().plot.line(ax=axis[1], color="blue")
+        sat_interp_hcho.mean(["lat", "lon", "sat_layer"]).to_dataframe(name="Sat_interp_hcho").plot.line(ax=axis[1], color="red")
+        Cch2o_filtered.rename({"CH2O":"Chaser_hcho"}).mean(["lat", "lon", "layer"]).to_dataframe().plot.line(ax=axis[1], color="blue")
+
+        sat_pressure.rename({"layer_pressure":"Sat_pressure"}).mean(["lat", "lon", "sat_layer"]).to_dataframe().plot.line(ax=axis[2], color="red")
+        Cps_filtered.rename({"PS":"Chaser_pressure"}).mean(["lat", "lon", "layer"]).to_dataframe().plot.line(ax=axis[2], color="blue")
+        plt.suptitle(case, fontsize=16, fontweight="bold")
+        print(sat_pressure.time.values)
 
 
     hcho_layers = []
@@ -378,8 +383,8 @@ def ak_apply_to_chaser_do():
     ds_omi = xr.open_dataset(omi_file)
     omi_pressure = extract_layer_sat_ps(ds_omi)
 
-    # ds_tropo = xr.open_dataset(tropo_file)
-    # tropo_pressure = extract_layer_sat_ps(ds_tropo)
+    ds_tropo = xr.open_dataset(tropo_file)
+    tropo_pressure = extract_layer_sat_ps(ds_tropo)
 
     for sat_interp in [True]:
         for case in CASES[:1]:

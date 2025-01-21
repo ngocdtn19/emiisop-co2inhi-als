@@ -47,22 +47,27 @@ def list_all_files(base_dir):
             all_files.append(os.path.join(root, file))
     return all_files
 
-
-def plt_reg(sat="tropo"):
-    # initial vars
+def load_hcho(sat):
     base_dir = "/mnt/dg3/ngoc/emiisop_co2inhi_als/data/hcho_sat_ak_applied/"
     files = list_all_files(base_dir)
 
     obs = HCHO(TROPO_FILE) if sat == "tropo" else HCHO(OMI_FILE)
 
     ak_files = [f for f in files if sat in f]
-    interp_files = [f for f in ak_files if "/sat_interp/" in f][:1]
-    nointerp_files = [f for f in ak_files if "/no_sat_interp/" in f][:1]
+    interp_files = [f for f in ak_files if "/sat_interp/" in f]
+    nointerp_files = [f for f in ak_files if "/no_sat_interp/" in f]
 
     hcho_interp = {Path(f).parents[1].name: HCHO(f) for f in interp_files}
     hcho_nointerp = {Path(f).parents[1].name: HCHO(f) for f in nointerp_files}
     hcho_interp["OBS"] = obs
     hcho_nointerp["OBS"] = obs
+    return hcho_interp, hcho_nointerp
+
+interp_omi, nointerp_omi = load_hcho("omi")
+interp_tropo, nointerp_tropo = load_hcho("tropo")
+
+#%%
+def plt_reg(hcho_interp, hcho_nointerp):
 
     list_regions = ["AMZ", "ENA", "SAF", "MED", "CEU", "EAS", "SAS", "SEA", "NAU"]
     tits = ["Temp/HCHO Interpolated by Satellite Pressure", "No Interpolation"]
@@ -105,8 +110,135 @@ def plt_reg(sat="tropo"):
             )
             plt.suptitle(tits[k], fontsize=16, fontweight="bold")
 
+def plt_map_mean_ss(hcho_interp, hcho_nointerp, sat_name):
+    ss_months = [[12, 1, 2], [6,7,8]]
+    seasons = ["DJF", "JJA"]
+    # plotting vars
+    cmaps = "bwr"
+    vmins = -100
+    vmaxs = 100
+    unit = "[%]"
+    levels = 7
 
-def plt_map_mean_year():
+    data_tits = ["Sat_Interp", "No_Interp"]
+    for k, hcho in enumerate([hcho_interp, hcho_nointerp]):
+        obs = hcho["OBS"].hcho
+
+        for s, months in enumerate(ss_months):
+            cases = list(hcho_interp.keys())[::-1][1:]
+            rows, cols = len(cases)//2, 2
+            fig, axis = plt.subplots(
+                rows,
+                cols,
+                figsize=(4 * 2, 2.5*4),
+                layout="constrained",
+                subplot_kw=dict(projection=ccrs.PlateCarree()),
+            )
+
+            ss_obs = obs.sel(time=(obs.time.dt.month.isin(months))).mean("time", skipna=True)
+
+            for j, c in enumerate(cases):
+                ri, ci = j // cols, j % cols
+                ax = axis[ri, ci]
+
+                chaser = hcho[c].hcho
+                ss_chaser = chaser.sel(
+                    time=(chaser.time.dt.month.isin(months))
+                ).mean("time", skipna=True)
+
+                ss_diff = (ss_chaser - ss_obs) * 1e2 / ss_obs
+                
+                add_colorbar = True if ri > 2 else False
+                cbar_kwargs = (
+                    {
+                        "orientation": "horizontal",
+                        "shrink": 0.8,
+                        "label": unit,
+                    }
+                    if add_colorbar
+                    else {}
+                )
+
+
+                ss_diff.plot(
+                    ax=ax,
+                    cmap=cmaps,
+                    levels=levels,
+                    vmin=vmins,
+                    vmax=vmaxs,
+                    add_colorbar=add_colorbar,
+                    cbar_kwargs=cbar_kwargs,
+                )
+
+                ax.set_title(c, fontsize=14)
+                ax.coastlines()
+                ax.set_extent([-179.5, 179.5, -80, 80], crs=ccrs.PlateCarree())
+                ax.set_xticks([])
+                ax.set_xlabel("")
+                ax.set_yticks([])
+                ax.set_ylabel("")
+            plt.suptitle(f"{data_tits[k]}_CHASER-{sat_name} ({seasons[s]})", fontsize=16, fontweight="bold")
+
+
+def plt_map_corr(hcho_interp, hcho_nointerp, sat_name):
+    data_tits = ["Sat_Interp", "No_Interp"]
+    modes = ["ss", "ann"]
+    tits = ["Seasonal", "Interannual"]
+    cmaps = "Blues"
+    levels = 11
+    vmins = 0
+    vmaxs = 1
+    unit = "Pearson R"
+    for k, hcho in enumerate([hcho_interp, hcho_nointerp]):
+        obs = hcho["OBS"].hcho
+        cases = list(hcho_interp.keys())[::-1][1:]
+        for i, m in enumerate(modes):
+            rows, cols = len(cases)//2, 2
+            fig, axis = plt.subplots(
+                rows,
+                cols,
+                figsize=(4 * 2, 2.5*4),
+                layout="constrained",
+                subplot_kw=dict(projection=ccrs.PlateCarree()),
+            )
+            for j, c in enumerate(cases):
+                ri, ci = j // cols, j % cols
+                ax = axis[ri, ci]
+
+                chaser = hcho[c].hcho
+                corr = map_corr_by_time(chaser, obs, m)
+                add_colorbar = True if ri > 2 else False
+                cbar_kwargs = (
+                    {
+                        "orientation": "horizontal",
+                        "shrink": 0.8,
+                        "label": unit,
+                    }
+                    if add_colorbar
+                    else {}
+                )
+                corr.plot(
+                    ax=ax,
+                    cmap=cmaps,
+                    levels=levels,
+                    vmin=vmins,
+                    vmax=vmaxs,
+                    add_colorbar=add_colorbar,
+                    cbar_kwargs=cbar_kwargs,
+                )
+                ax.set_title(c, fontsize=14)
+                ax.coastlines()
+                ax.set_extent([-179.5, 179.5, -80, 80], crs=ccrs.PlateCarree())
+                ax.set_xticks([])
+                ax.set_xlabel("")
+                ax.set_yticks([])
+                ax.set_ylabel("")
+            plt.suptitle(f"{tits[i]} Corr. {data_tits[k]}_CHASER-{sat_name}", fontsize=16, fontweight="bold")
+
+
+            
+
+def old_plt_map_mean_year():
     fig, axis = plt.subplots(
         4,
         5,
@@ -183,119 +315,6 @@ def plt_map_mean_year():
             ax.set_xlabel("")
             ax.set_yticks([])
             ax.set_ylabel("")
-
-
-def plt_map_mean_ss():
-    fig, axis = plt.subplots(
-        2,
-        5,
-        figsize=(3.75 * 5, 4),
-        layout="constrained",
-        subplot_kw=dict(projection=ccrs.PlateCarree()),
-    )
-    winters = [12, 1, 2]
-    summers = [6, 7, 8]
-
-    djf_tropomi = tropomi.sel(time=(tropomi.time.dt.month.isin(winters))).mean("time")
-    jja_tropomi = tropomi.sel(time=(tropomi.time.dt.month.isin(summers))).mean("time")
-
-    djf_inhi_chaser = inhi_chaser.sel(
-        time=(inhi_chaser.time.dt.month.isin(winters))
-    ).mean("time", skipna=True)
-    jja_inhi_chaser = inhi_chaser.sel(
-        time=(inhi_chaser.time.dt.month.isin(summers))
-    ).mean("time", skipna=True)
-
-    djf_no_inhi_chaser = no_inhi_chaser.sel(
-        time=(no_inhi_chaser.time.dt.month.isin(winters))
-    ).mean("time", skipna=True)
-    jja_no_inhi_chaser = no_inhi_chaser.sel(
-        time=(no_inhi_chaser.time.dt.month.isin(summers))
-    ).mean("time", skipna=True)
-
-    djf_inhi_diff = (djf_inhi_chaser - djf_tropomi) * 1e2 / djf_tropomi
-
-    jja_inhi_diff = (jja_inhi_chaser - jja_tropomi) * 1e2 / jja_tropomi
-
-    djf_no_inhi_diff = (djf_no_inhi_chaser - djf_tropomi) * 1e2 / djf_tropomi
-
-    jja_no_inhi_diff = (jja_no_inhi_chaser - jja_tropomi) * 1e2 / jja_tropomi
-
-    titles = [
-        [
-            "TROPOMI (DJF)",
-            "Inhi-CHASER (DJF)",
-            "No-Inhi-CHASER (DJF)",
-            "Inhi-CHASER-TROPOMI (DJF)",
-            "No-Inhi-CHASER-TROPOMI (DJF)",
-        ],
-        [
-            "TROPOMI (JJA)",
-            "Inhi-CHASER (JJA)",
-            "No-Inhi-CHASER (JJA)",
-            "Inhi-CHASER-TROPOMI (JJA)",
-            "No-Inhi-CHASER-TROPOMI (JJA)",
-        ],
-    ]
-    cmaps = ["rainbow", "rainbow", "rainbow", "bwr", "bwr"]
-    vmins = [0, 0, 0, -150, -150]
-    vmaxs = [20, 20, 20, 150, 150]
-
-    dss = [
-        [
-            djf_tropomi,
-            djf_inhi_chaser,
-            djf_no_inhi_chaser,
-            djf_inhi_diff,
-            djf_no_inhi_diff,
-        ],
-        [
-            jja_tropomi,
-            jja_inhi_chaser,
-            jja_no_inhi_chaser,
-            jja_inhi_diff,
-            jja_no_inhi_diff,
-        ],
-    ]
-
-    for i, ds in enumerate(dss):
-        for j, _ in enumerate(ds):
-            ax = axis[i, j]
-
-            add_colorbar = True if i > 0 else False
-            unit = (
-                "HCHO total col. (\u00d710$^{15}$ molec.cm$^{-2}$)" if j < 3 else "[%]"
-            )
-            cbar_kwargs = (
-                {
-                    "orientation": "horizontal",
-                    "shrink": 0.6,
-                    "label": unit,
-                }
-                if add_colorbar
-                else {}
-            )
-
-            levels = 21 if j < 3 else 5
-
-            dss[i][j].plot(
-                ax=ax,
-                cmap=cmaps[j],
-                levels=levels,
-                vmin=vmins[j],
-                vmax=vmaxs[j],
-                add_colorbar=add_colorbar,
-                cbar_kwargs=cbar_kwargs,
-            )
-
-            ax.set_title(titles[i][j], fontsize=14)
-            ax.coastlines()
-            ax.set_extent([-179.5, 179.5, -80, 80], crs=ccrs.PlateCarree())
-            ax.set_xticks([])
-            ax.set_xlabel("")
-            ax.set_yticks([])
-            ax.set_ylabel("")
-
 
 def plt_chaser_tropo_hcho_corr():
     fig, axis = plt.subplots(
@@ -399,7 +418,7 @@ def plt_ann_glob():
         print(f"trend chaser:{trend_chaser:.2f}")
 
 
-def plt_reg_old(hcho, ax, case_name, mode="ss"):
+def old_plt_reg(hcho, ax, case_name, mode="ss"):
     list_regions = ["AMZ", "ENA", "SAF", "MED", "CEU", "EAS", "SAS", "SEA", "NAU"]
 
     if mode == "ann":

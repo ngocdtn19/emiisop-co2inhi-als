@@ -100,13 +100,15 @@ def cal_mk_map(ds, product_name):
 
 
 def map_corr_by_time(
-    ds1, ds2, case_name, mode, start_date="2018-06-01", end_date="2023-12-01"
+    ds1, ds2, mode, start_date=None, end_date=None
 ):
     if len(ds1.lat) != len(ds2.lat):
         ds1 = ds2.interp(lat=ds2.lat, lon=ds2.lon, method="nearest")
+    
+    if start_date and end_date:
+        ds1 = ds1.sel(time=slice(start_date, end_date))
+        ds2 = ds2.sel(time=slice(start_date, end_date))
 
-    ds1_ss = ds1.sel(time=slice(start_date, end_date))
-    ds2_ss = ds2.sel(time=slice(start_date, end_date))
     if mode == "ss":
         ds1_ss = ds1.groupby(ds1.time.dt.month).mean(skipna=True)
         ds2_ss = ds2.groupby(ds2.time.dt.month).mean(skipna=True)
@@ -117,8 +119,6 @@ def map_corr_by_time(
         dim = "year"
 
     c = xr.corr(ds1_ss, ds2_ss, dim=dim)
-
-    c.to_netcdf(f"./plt_data/map_corr/{case_name}_{mode}.nc")
     return c
 
 
@@ -132,7 +132,7 @@ class HCHO:
         if "tcolhcho" in list(self.ds.data_vars):
             self.ds = self.ds.rename({"tcolhcho": "hcho"})
 
-        # self.ds = self.ds.fillna(0)
+        self.ds = self.ds.fillna(0)
         self.hcho = self.ds["hcho"] * 1e-15
 
         self.cal_weights()
