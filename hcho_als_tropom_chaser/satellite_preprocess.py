@@ -40,6 +40,8 @@ def satellite_HchoL3_extract(product="tropomi"):
 
     vars = [
         "tropospheric_HCHO_column_number_density_clear",
+        "tropospheric_HCHO_column_number_density_apriori",
+        "HCHO_volume_mixing_ratio_dry_air_apriori",
         "qa_L3",
         "land_water_mask",
         "surface_pressure",
@@ -60,6 +62,8 @@ def satellite_HchoL3_extract(product="tropomi"):
     final_ds = final_ds.rename(
         {
             "tropospheric_HCHO_column_number_density_clear": "tcolhcho",
+            "tropospheric_HCHO_column_number_density_apriori": "tcolhcho_apriori",
+            "HCHO_volume_mixing_ratio_dry_air_apriori": "hcho_vertical_profile_apriori",
             ak_col: "AK",
         }
     )

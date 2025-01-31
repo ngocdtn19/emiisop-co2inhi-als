@@ -99,12 +99,10 @@ def cal_mk_map(ds, product_name):
     return slope
 
 
-def map_corr_by_time(
-    ds1, ds2, mode, start_date=None, end_date=None
-):
+def map_corr_by_time(ds1, ds2, mode, start_date=None, end_date=None):
     if len(ds1.lat) != len(ds2.lat):
         ds1 = ds2.interp(lat=ds2.lat, lon=ds2.lon, method="nearest")
-    
+
     if start_date and end_date:
         ds1 = ds1.sel(time=slice(start_date, end_date))
         ds2 = ds2.sel(time=slice(start_date, end_date))
@@ -123,14 +121,14 @@ def map_corr_by_time(
 
 
 class HCHO:
-    def __init__(self, file_path, type="model"):
+    def __init__(self, file_path, hcho_var="tcolhcho"):
         # self.ds = xr.open_dataset(file_path).fillna(0)
         if isinstance(file_path, str):
             self.ds = xr.open_dataset(file_path)
         else:
             self.ds = prep_org_hcho_chaser(file_path)
-        if "tcolhcho" in list(self.ds.data_vars):
-            self.ds = self.ds.rename({"tcolhcho": "hcho"})
+        if hcho_var in list(self.ds.data_vars):
+            self.ds = self.ds.rename({hcho_var: "hcho"})
 
         self.ds = self.ds.fillna(0)
         self.hcho = self.ds["hcho"] * 1e-15
