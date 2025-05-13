@@ -120,7 +120,42 @@ def map_corr_by_time(ds1, ds2, mode, start_date=None, end_date=None):
     return c
 
 
+def create_visit_mask():
+    visit_mask = "/mnt/dg3/ngoc/cmip6_bvoc_als/data/original/axl/mask/mask_fx_VISIT-S3(G1997)_historical_r1i1p1f1_gn.nc"
+    mask = xr.open_dataset(visit_mask)
+    mask = mask.interp(
+        lat=chaser_lat, lon=sorted(((chaser_lon + 180) % 360) - 180), method="nearest"
+    )
+    mask.to_netcdf(
+        "./visit_land_mask/mask.nc",
+    )
+    return mask
+
+
 class HCHO:
+    hoque_reg_coords = {
+        "REMOTE_PACIFIC": {
+            "lat": [32, -28],  # 32°N to 28°S
+            "lon": [-177, -117],  # -177° to -117°
+        },
+        "Indonesia": {
+            "lat": [6, -10],  # 6°N to 10°S (descending]
+            "lon": [95, 142],  # 95°E to 142°E
+        },
+        "C_Africa": {
+            "lat": [5, -4],  # 5°N to 4°S
+            "lon": [10, 40],  # 10°E to 40°E
+        },
+        "N_Africa": {
+            "lat": [15, 5],  # 15°N to 5°N
+            "lon": [-10, 30],  # 10°W to 30°E → -10 to 30
+        },
+        "S_Africa": {
+            "lat": [-5, -15],  # 5°S to 15°S
+            "lon": [10, 30],  # 10°E to 30°E
+        },
+    }
+
     def __init__(self, file_path, hcho_var="tcolhcho"):
         # self.ds = xr.open_dataset(file_path).fillna(0)
         if isinstance(file_path, str):
@@ -129,9 +164,14 @@ class HCHO:
             self.ds = prep_org_hcho_chaser(file_path)
         if hcho_var in list(self.ds.data_vars):
             self.ds = self.ds.rename({hcho_var: "hcho"})
+        if "hcho" not in list(self.ds.data_vars):
+            self.ds = self.ds.rename({list(self.ds.data_vars.keys())[0]: "hcho"})
 
         self.ds = self.ds.fillna(0)
         self.hcho = self.ds["hcho"] * 1e-15
+        self.hcho = self.hcho.sel(time=(self.hcho.time.dt.year < 2024))
+
+        self.mask_land()
 
         self.cal_weights()
         (
@@ -150,6 +190,13 @@ class HCHO:
         #     self.inhi_chaser_hcho, self.tropomi_hcho, "tropo_chaser", mode="ann"
         # )
 
+    def mask_land(self):
+        visit_mask = xr.open_dataset("./visit_land_mask/mask.nc")
+        # mask = xr.where(~visit_mask["mask"].isnull(), 1.0, np.nan)
+        mask = visit_mask.mask.values
+
+        self.hcho = self.hcho * mask
+
     def cal_weights(self):
         ds = self.ds.isel(time=0)
         lat = [d for d in list(ds.dims) if "lat" in d][0]
@@ -159,7 +206,8 @@ class HCHO:
     @staticmethod
     def cal_glob_reg_hcho(ds, weights):
 
-        list_srex_regs = regionmask.defined_regions.srex.abbrevs
+        hoque_regions = list(HCHO.hoque_reg_coords.keys())
+        list_srex_regs = regionmask.defined_regions.srex.abbrevs + hoque_regions
         mask_3D = regionmask.defined_regions.srex.mask_3D(ds.isel(time=0))
 
         # annual global hcho
@@ -187,10 +235,22 @@ class HCHO:
                 hcho_glob.append(hcho_m_w)
                 # cal regional hcho
                 for r in list_srex_regs:
-                    mask_r = mask_3D.isel(region=(mask_3D.abbrevs == r))
-                    hcho_m_w_r = (
-                        ds_month.weighted(mask_r * weights).mean(skipna=True).item()
-                    )
+                    if r not in hoque_regions:
+                        mask_r = mask_3D.isel(region=(mask_3D.abbrevs == r))
+                        hcho_m_w_r = (
+                            ds_month.weighted(mask_r * weights).mean(skipna=True).item()
+                        )
+                    else:
+                        lat = HCHO.hoque_reg_coords[r]["lat"]
+                        lon = HCHO.hoque_reg_coords[r]["lon"]
+                        hcho_m_w_r = (
+                            ds_month.sel(
+                                lat=slice(lat[0], lat[1]),
+                                lon=slice(lon[0], lon[1]),
+                            )
+                            .mean(skipna=True)
+                            .item()
+                        )
                     hcho_reg[r].append(hcho_m_w_r)
 
             for r in list_srex_regs:
@@ -204,15 +264,31 @@ class HCHO:
 
         # cal reg hcho for reg
         for r in list_srex_regs:
-            mask_r = mask_3D.isel(region=(mask_3D.abbrevs == r))
-            reg_hcho_ss[r] = (
-                ds.weighted(mask_r * weights)
-                .mean(["lat", "lon"])
-                .groupby(ds.time.dt.month)
-                .mean(skipna=True)
-                .to_dataframe()["hcho"]
-                .values
-            )
+            if r not in hoque_regions:
+                mask_r = mask_3D.isel(region=(mask_3D.abbrevs == r))
+                reg_hcho_ss[r] = (
+                    ds.weighted(mask_r * weights)
+                    .mean(["lat", "lon"])
+                    .groupby(ds.time.dt.month)
+                    .mean(skipna=True)
+                    .to_dataframe()["hcho"]
+                    .values
+                )
+            else:
+                lat = HCHO.hoque_reg_coords[r]["lat"]
+                lon = HCHO.hoque_reg_coords[r]["lon"]
+                reg_hcho_ss[r] = (
+                    ds.sel(
+                        lat=slice(lat[0], lat[1]),
+                        lon=slice(lon[0], lon[1]),
+                    )
+                    .mean(["lat", "lon"])
+                    .groupby(ds.time.dt.month)
+                    .mean(skipna=True)
+                    .to_dataframe()["hcho"]
+                    .values
+                )
+                print(len(reg_hcho_ss[r]), r)
             assert len(reg_hcho_ss[r]) == 12
 
         glob_hcho_ann = pd.DataFrame.from_dict(glob_hcho_ann)
@@ -243,6 +319,19 @@ class HCHO:
         #     reg_hcho_ss.to_csv(reg_hcho_ss_path)
 
         return glob_hcho_ann, reg_hcho_ann, hcho_lat_mean, reg_hcho_ss
+
+
+class HCHO_hoque(HCHO):
+    def __init__(self, ds):
+        self.ds = ds
+        self.hcho = ds.hcho
+        self.cal_weights()
+        (
+            self.glob_ann,
+            self.reg_ann,
+            self.lat_mean,
+            self.reg_ss,
+        ) = HCHO.cal_glob_reg_hcho(self.hcho, self.weights)
 
 
 # chaser_hcho = prep_hcho_chaser(all_hcho_chaser_paths)

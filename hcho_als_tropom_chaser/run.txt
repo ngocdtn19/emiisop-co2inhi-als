@@ -1,0 +1,32 @@
+AK.py
+    1. change CASES = ["new simulation folder name"]
+    2. check years in sampling_12to14h()
+    3. run sampling_12to14h()
+    4. in ak_apply_to_chaser_do() 
+        4.1. sat_interp in [True, False]: 
+            1 - interpolated hcho, temp
+            0 - no interpolation
+    5: run ak_apply_to_chaser_do()
+plt.py
+    run interp_omi, nointerp_omi = load_hcho("omi")
+    run interp_tropo, nointerp_tropo = load_hcho("tropo")
+
+#for non-AK comparison
+non_AK_comparison.py
+    1. change CASES
+    2. run chaser_tcol_cal()
+    3. run hcho = load_data()
+    # %%
+    SAT_DIR = f"/mnt/dg3/ngoc/obs_data"
+    TIME_OMI = "20050101-20231201"
+    TIME_TROPO = "20180601-20240701"
+    M_NAME_OMI = "mon_BIRA_OMI_HCHO_L3"
+    M_NAME_TROPO = "mon_TROPOMI_HCHO_L3"
+
+    OMI_FILE = f"{SAT_DIR}/{M_NAME_OMI}/EXTRACT/hcho_AERmon_{M_NAME_OMI}_historical_gn_{TIME_OMI}.nc"
+    TROPO_FILE = f"{SAT_DIR}/{M_NAME_TROPO}/EXTRACT/hcho_AERmon_{M_NAME_TROPO}_historical_gn_{TIME_TROPO}.nc"
+
+    hcho["TROPOMI"] = HCHO(TROPO_FILE)
+    hcho["OMI"] = HCHO(OMI_FILE)
+    # %%
+    4. run plt_reg(hcho)

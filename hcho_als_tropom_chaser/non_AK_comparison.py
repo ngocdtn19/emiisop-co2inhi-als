@@ -22,7 +22,17 @@ geogrid = pygtool.readgrid()
 Clon, Clat = geogrid.getlonlat()
 
 BASE_DIR = "/mnt/dg3/ngoc/CHASER_output"
-CASES = ["VISIT20172023_no_nudg", "VISITst20012023_nudg", "hoque_sim"]
+CASES = [
+    # "VISIT20172023_no_nudg",
+    "VISITst20012023_nudg",
+    # "hoque_sim",
+    # "XhalfVISITst20012023",
+    "UKpft20012023_nudg",
+    "MEGANst20012023_nudg",
+    "MEGANpft20012023_nudg",
+    "UKst20012023_nudg",
+    "MIXpft20012023_nudg",
+]
 
 SIGMA = load_sigma()
 
@@ -151,7 +161,7 @@ def chaser_tcol_cal():
     if not os.path.exists(out_dir):
         os.makedirs(out_dir)
 
-    for _case in ["hoque_sim"]:
+    for _case in CASES:
         print(_case)
         case_dir = f"{BASE_DIR}/sample_12to14h/{_case}"
 
@@ -180,20 +190,55 @@ def load_data():
     out_dir = f"/mnt/dg3/ngoc/emiisop_co2inhi_als/data/hcho_no_ak"
     hcho = {c: HCHO(f"{out_dir}/{c}.nc") for c in CASES}
 
-    hcho["TROPOMI"] = HCHO(TROPO_FILE, hcho_var="tcolhcho_apriori")
-    hcho["OMI"] = HCHO(OMI_FILE, hcho_var="tcolhcho_apriori")
+    # this var is before correction
+    # hcho["TROPOMI"] = HCHO(TROPO_FILE, hcho_var="tcolhcho_apriori")
+    # hcho["OMI"] = HCHO(OMI_FILE, hcho_var="tcolhcho_apriori")
+
     return hcho
 
 
 def plt_reg(hcho):
-    list_regions = ["AMZ", "ENA", "SAF", "MED", "CEU", "EAS", "SAS", "SEA", "NAU"]
-    colors = [
-        "#a6cee3",
-        "#1f78b4",
-        "#fb9a99",
-        "#33a02c",
-        "#b2df8a",
+    list_regions = [
+        "AMZ",
+        "ENA",
+        "EAS",
+        "SEA",
+        "NAU",
+        "Indonesia",
+        "C_Africa",
+        "N_Africa",
+        "S_Africa",
+        # "REMOTE_PACIFIC",
     ]
+    colors = [
+        "#D55E00",  # vermillion
+        "#E69F00",  # orange
+        "#56B4E9",  # sky blue
+        "#009E73",  # bluish green
+        "#F0E442",  # yellow
+        "#0072B2",  # blue
+        "#CC79A7",  # reddish purple
+        "#999933",  # olive green
+        "#882255",
+    ]
+
+    ylim_dict = {
+        "AMZ": (0, 20),
+        "ENA": (0, 15),
+        # "SAF": (0, 15),
+        # "MED": (0, 15),
+        # "CEU": (0, 15),
+        "EAS": (0, 15),
+        # "SAS": (0, 15),
+        "SEA": (0, 20),
+        "NAU": (0, 15),
+        "Indonesia": (0, 20),
+        "C_Africa": (0, 20),
+        "N_Africa": (0, 20),
+        "S_Africa": (0, 20),
+        "REMOTE_PACIFIC": (0, 4),
+    }
+
     tits = ["Seasonal", "Inter-annual Variability"]
     for k, mode in enumerate(["ss", "ann"]):
         index = "month" if mode == "ss" else "year"
@@ -222,11 +267,14 @@ def plt_reg(hcho):
                 ax.set_xlabel("")
             ax.set_ylabel("(\u00d710$^{15}$ molec.cm$^{-2}$)")
             ax.set_title(f"{r}")
+            ax.set_xlim(2005, 2023)
+            if r in ylim_dict:
+                ax.set_ylim(ylim_dict[r])
 
         fig.legend(
             handles,
             labels,
-            ncol=5,
+            ncol=4,
             loc="center",
             bbox_to_anchor=(0.5, -0.06),
         )

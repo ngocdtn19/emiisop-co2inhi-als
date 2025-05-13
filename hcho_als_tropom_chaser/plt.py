@@ -1,5 +1,7 @@
 # %%
 import matplotlib.pyplot as plt
+import scipy
+import numpy as np
 import seaborn as sns
 import regionmask
 import cartopy.crs as ccrs
@@ -14,8 +16,24 @@ ORG_CHASER_DIR = "/mnt/dg3/ngoc/CHASER_output"
 AKED_DIR = "/mnt/dg3/ngoc/emiisop_co2inhi_als/data/hcho_sat_ak_applied"
 
 SAT_NAMES = ["TROPO", "OMI"]
-CASES = [f.split("/")[-1] for f in glob(f"{ORG_CHASER_DIR}/*2023_*")]
-
+# CASES = [f.split("/")[-1] for f in glob(f"{ORG_CHASER_DIR}/*2023_*")]
+CASES = [
+    "VISITst20012023_nudg",
+    "UKpft20012023_nudg",
+    # "MEGANst20012023_nudg",
+    # "MEGANpft20012023_nudg",
+    # "UKst20012023_nudg",
+    # "MIXpft20012023_nudg",
+    "OBS",
+]
+# CASES = [
+# "hoque_sim_2019",
+# "VISITst20012023_nudg",
+# "hoque_aked",
+# "ngoc_aked",
+# "OBS",
+# "VISITst20172023_no_nudg",
+# ]
 
 # SATELLITE SETTING
 SAT_DIR = f"/mnt/dg3/ngoc/obs_data"
@@ -27,16 +45,26 @@ M_NAME_TROPO = "mon_TROPOMI_HCHO_L3"
 OMI_FILE = f"{SAT_DIR}/{M_NAME_OMI}/EXTRACT/hcho_AERmon_{M_NAME_OMI}_historical_gn_{TIME_OMI}.nc"
 TROPO_FILE = f"{SAT_DIR}/{M_NAME_TROPO}/EXTRACT/hcho_AERmon_{M_NAME_TROPO}_historical_gn_{TIME_TROPO}.nc"
 
+# colors = [
+#     "#005a32",
+#     "#feb24c",
+#     "#f03b20",
+#     "#c6dbef",
+#     "#9ecae1",
+#     "#6baed6",
+#     "#4292c6",
+#     "#2171b5",
+#     "#084594",
+# ]
+
 colors = [
-    "#005a32",
-    "#feb24c",
-    "#f03b20",
-    "#c6dbef",
-    "#9ecae1",
-    "#6baed6",
-    "#4292c6",
-    "#2171b5",
-    "#084594",
+    "#D55E00",  # vermillion
+    "#E69F00",  # orange
+    "#56B4E9",  # sky blue
+    "#009E73",  # bluish green
+    "#F0E442",  # yellow
+    "#0072B2",  # blue
+    "#CC79A7",  # reddish purple
 ]
 
 
@@ -44,8 +72,35 @@ def list_all_files(base_dir):
     all_files = []
     for root, dirs, files in os.walk(base_dir):
         for file in files:
-            all_files.append(os.path.join(root, file))
+            file = os.path.join(root, file)
+            for case in CASES:
+                if case in file:
+                    if "33" in file:
+                        all_files.append(file)
     return all_files
+
+
+def load_hoque_aked_nc():
+    def process_nc(nc_path):
+        ds = xr.open_dataset(nc_path)
+        hcho = (
+            ds["partial_column"]
+            .sum("level")
+            .resample(time="1M")
+            .mean()
+            .to_dataset(name="hcho")
+        )
+        hcho = hcho.sortby("latitude", ascending=False)
+        hcho["hcho"] = hcho["hcho"] * 1e-15
+        return hcho.rename({"latitude": "lat", "longitude": "lon"})
+
+    base_dir = "/mnt/dg3/ngoc/emiisop_co2inhi_als/data/hoque_test"
+    hoque = f"{base_dir}/ch2o_hoque_sim_AKapplied_combined_2019.nc"
+    ngoc = f"{base_dir}/ch2o_ngoc_sim_AKapplied_combined_2019.nc"
+
+    prep_hoque = HCHO_hoque(process_nc(hoque))
+    prep_ngoc = HCHO_hoque(process_nc(ngoc))
+    return prep_hoque, prep_ngoc
 
 
 def load_hcho(sat):
@@ -62,6 +117,10 @@ def load_hcho(sat):
     hcho_nointerp = {Path(f).parents[1].name: HCHO(f) for f in nointerp_files}
     hcho_interp["OBS"] = obs
     hcho_nointerp["OBS"] = obs
+
+    # hq_aked_hoque, hq_aked_ngoc = load_hoque_aked_nc()
+    # hcho_nointerp["hoque_aked"] = hq_aked_hoque
+    # hcho_nointerp["ngoc_aked"] = hq_aked_ngoc
     return hcho_interp, hcho_nointerp
 
 
@@ -70,10 +129,54 @@ def load_hcho(sat):
 
 
 # %%
-def plt_reg(hcho_interp, hcho_nointerp):
+def plt_reg(hcho_interp, hcho_nointerp, tits=None):
 
-    list_regions = ["AMZ", "ENA", "SAF", "MED", "CEU", "EAS", "SAS", "SEA", "NAU"]
-    tits = ["Temp/HCHO Interpolated by Satellite Pressure", "No Interpolation"]
+    list_regions = [
+        "AMZ",
+        "ENA",
+        # "SAF",
+        # "MED",
+        # "CEU",
+        "EAS",
+        # "SAS",
+        "SEA",
+        "NAU",
+        "Indonesia",
+        "C_Africa",
+        "N_Africa",
+        "S_Africa",
+        # "REMOTE_PACIFIC",
+    ]
+    if tits is None:
+        tits = ["Temp/HCHO Interpolated by Satellite Pressure", "No Interpolation"]
+
+    # interested_case = list(hcho_interp.keys())[::-1]
+    # interested_case = [
+    #     "OBS",
+    #     # "VISIT20172023_no_nudg",
+    #     "VISITst20012023_nudg",
+    #     "XhalfVISITst20012023",
+    #     "XhalfUKpft20012023",
+    # ]
+    # interested_case = list(hcho_interp.keys())
+    interested_case = CASES
+
+    ylim_dict = {
+        "AMZ": (0, 20),
+        "ENA": (0, 15),
+        # "SAF": (0, 15),
+        # "MED": (0, 15),
+        # "CEU": (0, 15),
+        "EAS": (0, 15),
+        # "SAS": (0, 15),
+        "SEA": (0, 15),
+        "NAU": (0, 15),
+        "Indonesia": (0, 15),
+        "C_Africa": (0, 15),
+        "N_Africa": (0, 15),
+        "S_Africa": (0, 15),
+        "REMOTE_PACIFIC": (0, 4),
+    }
 
     for mode in ["ss", "ann"]:
         index = "month" if mode == "ss" else "year"
@@ -83,7 +186,8 @@ def plt_reg(hcho_interp, hcho_nointerp):
             for i, r in enumerate(list_regions):
                 ri, ci = i // 3, i % 3
                 ax = axis[ri, ci]
-                for j, c in enumerate(list(hcho_interp.keys())[::-1]):
+                # for j, c in enumerate(list(hcho_interp.keys())[::-1]):
+                for j, c in enumerate(interested_case):
                     ds = hcho[c].reg_ss if mode == "ss" else hcho[c].reg_ann
                     reg_df = ds[[index, r]].set_index(index).rename(columns={r: c})
                     sns.lineplot(
@@ -93,6 +197,10 @@ def plt_reg(hcho_interp, hcho_nointerp):
                         markers=True,
                         lw=2,
                     )
+                # Set y-axis limit
+                if r in ylim_dict:
+                    ax.set_ylim(ylim_dict[r])
+
                 handles, labels = ax.get_legend_handles_labels()
                 ax.get_legend().remove()
                 ax.set_xlabel("Year")
@@ -107,7 +215,7 @@ def plt_reg(hcho_interp, hcho_nointerp):
             fig.legend(
                 handles,
                 labels,
-                ncol=3,
+                ncol=4,
                 loc="center",
                 bbox_to_anchor=(0.5, -0.06),
             )
@@ -134,7 +242,7 @@ def plt_map_mean_ss(hcho_interp, hcho_nointerp, sat_name):
             fig, axis = plt.subplots(
                 rows,
                 cols,
-                figsize=(4 * 2, 2.5 * 4),
+                figsize=(4 * 2, 2.5 * 3),
                 layout="constrained",
                 subplot_kw=dict(projection=ccrs.PlateCarree()),
             )
@@ -154,7 +262,7 @@ def plt_map_mean_ss(hcho_interp, hcho_nointerp, sat_name):
 
                 ss_diff = (ss_chaser - ss_obs) * 1e2 / ss_obs
 
-                add_colorbar = True if ri > 2 else False
+                add_colorbar = True if ri > 1 else False
                 cbar_kwargs = (
                     {
                         "orientation": "horizontal",
@@ -206,7 +314,7 @@ def plt_map_corr(hcho_interp, hcho_nointerp, sat_name):
             fig, axis = plt.subplots(
                 rows,
                 cols,
-                figsize=(4 * 2, 2.5 * 4),
+                figsize=(4 * 2, 2.5 * 3),
                 layout="constrained",
                 subplot_kw=dict(projection=ccrs.PlateCarree()),
             )
@@ -216,7 +324,7 @@ def plt_map_corr(hcho_interp, hcho_nointerp, sat_name):
 
                 chaser = hcho[c].hcho
                 corr = map_corr_by_time(chaser, obs, m)
-                add_colorbar = True if ri > 2 else False
+                add_colorbar = True if ri > 1 else False
                 cbar_kwargs = (
                     {
                         "orientation": "horizontal",
@@ -534,6 +642,163 @@ def old_plt_reg(hcho, ax, case_name, mode="ss"):
     )
 
     return pd.DataFrame.from_dict(df_stats)
+
+
+def plt_sudo(hcho):
+    # cases = list(hcho.keys())[::-1][:-1]
+    cases = list(hcho.keys())[::-1]
+    # for i, m in enumerate(modes):
+    rows, cols = len(cases) + 1 // 2, 2
+    fig, axis = plt.subplots(
+        rows,
+        cols,
+        figsize=(4 * 2, 2.5 * 4),
+        layout="constrained",
+        subplot_kw=dict(projection=ccrs.PlateCarree()),
+    )
+    unit = "(\u00d710$^{15}$ molec.cm$^{-2}$)"
+    for j, c in enumerate(cases):
+        ri, ci = j // cols, j % cols
+        ax = axis[ri, ci]
+        add_colorbar = True if ri > 2 else False
+        cbar_kwargs = (
+            {
+                "orientation": "horizontal",
+                "shrink": 0.8,
+                "label": unit,
+            }
+            if add_colorbar
+            else {}
+        )
+        chaser = hcho[c].hcho
+        chaser = chaser.sel(time=(chaser.time.dt.year == 2020)).mean("time")
+        chaser.plot(
+            ax=ax,
+            cmap="Spectral_r",
+            add_colorbar=add_colorbar,
+            cbar_kwargs=cbar_kwargs,
+            vmin=0,
+            vmax=15,
+        )
+        ax.set_title(c, fontsize=14)
+        ax.coastlines()
+        ax.set_extent([-179.5, 179.5, -80, 80], crs=ccrs.PlateCarree())
+    # Turn off unused axes
+    for j in range(len(cases), rows * cols):
+        ri, ci = j // cols, j % cols
+        axis[ri, ci].set_visible(False)
+
+
+def plt_check_AK():
+    sat_dir = f"/mnt/dg3/ngoc/obs_data"
+    time_omi = "20050101-20231201"
+    time_tropo = "20180601-20240701"
+
+    m_name_omi = "mon_BIRA_OMI_HCHO_L3"
+    m_name_tropo = "mon_TROPOMI_HCHO_L3"
+    omi_file = f"{sat_dir}/{m_name_omi}/EXTRACT/hcho_AERmon_{m_name_omi}_historical_gn_{time_omi}.nc"
+    tropo_file = f"{sat_dir}/{m_name_tropo}/EXTRACT/hcho_AERmon_{m_name_tropo}_historical_gn_{time_tropo}.nc"
+
+    tropo_ds = xr.open_dataset(tropo_file)
+    tropo_ds = tropo_ds.sel(time=(tropo_ds.time.dt.year == 2019))
+    tropo_pressure = extract_layer_sat_ps(tropo_ds)
+
+    months = [
+        "jan",
+        "feb",
+        "mar",
+        "apr",
+        "may",
+        "jun",
+        "jul",
+        "aug",
+        "sep",
+        "oct",
+        "nov",
+        "dec",
+    ]
+    # list_df = []
+    for i, m in enumerate(months):
+        ak_hoque_df = pd.read_csv(
+            f"/mnt/dg2/hoque/TROPOMI_model_analysis/2019/analysis/AK_{m}.txt",
+            delimiter="\t",
+            names=["Date", "Lat", "Lon", "AK", "Pressure_grid", "Level"],
+            header=None,
+        )
+
+        fig, axis = plt.subplots(1, 2, figsize=(2 * 3, 1 * 3), layout="constrained")
+        month = i + 1
+        tropo_ds.Sat_center_ps.sel(time=(tropo_ds.time.dt.month == month)).plot(
+            ax=axis[0]
+        )
+        ak_hoque_df["Pressure_grid"].plot.hist(ax=axis[1])
+
+
+def plt_check_interpolated_AK():
+    ak_dir = "/mnt/dg2/hoque/TROPOMI_model_analysis/2019/analysis/"
+    m = "jul"
+    df_jul = pd.read_csv(
+        f"{ak_dir}/AK_{m}.txt",
+        delimiter="\t",
+        header=None,
+        names=["time", "lat", "lon", "AK", "pressure", "level"],
+    )
+    times = df_jul.time.unique()
+    levels = df_jul.level.unique()
+    df_jul = df_jul[df_jul["time"] == times[0]]
+    df_jul = df_jul[df_jul["level"] == levels[0]]
+    print(times[0], levels[0])
+
+    lat_hoque = df_jul.lat.values
+    lon_hoque = df_jul.lon.values
+    ak_hoque = df_jul.AK.values
+    ps_hoque = df_jul.pressure.values
+    # hoque_ak_ps = df_jul.groupby(["time", "lat", "lon", "level"]).mean().to_xarray()
+    pa_ak_ps = xr.open_dataset(
+        "/mnt/dg3/ngoc/emiisop_co2inhi_als/data/hoque_test/TROPOMI_AK_2019_combined.nc"
+    )
+
+    pa_ak_ps_jul = pa_ak_ps.sel(time="2019-07-01", level=0)
+    # pa_ak_ps_jul = pa_ak_ps_jul.sortby("lat")
+
+    # hoque code test
+    clat = pa_ak_ps.lat.values
+    clon = pa_ak_ps.lon.values
+    xmax1 = np.linspace(
+        clat.min(),
+        clat.max(),
+        int((clat.max() - clat.min()) // 2.75),
+    )
+    ymax1 = np.linspace(
+        clon.min(),
+        clon.max(),
+        int((clon.max() - clon.min()) // 2.75),
+    )
+    # Yi, Xi = np.meshgrid(ymax1, xmax1)
+    Yi, Xi = np.meshgrid(clon, clat)
+    points = []
+    for m in range(len(lat_hoque)):
+        points.append([lon_hoque[m], lat_hoque[m]])
+
+    interp_ak = scipy.interpolate.griddata(points, ak_hoque, (Yi, Xi), method="nearest")
+    interp_ps = scipy.interpolate.griddata(points, ps_hoque, (Yi, Xi), method="nearest")
+    hoque_ak_ps_jul = xr.Dataset(
+        {
+            "AK": (("lat", "lon"), interp_ak),
+            "pressure": (("lat", "lon"), interp_ps),
+        },
+        coords={
+            "lat": (("lat"), clat),
+            "lon": (("lon"), clon),
+        },
+    )
+
+    diff_ak = (hoque_ak_ps_jul.AK - pa_ak_ps_jul.AK) * 100 / hoque_ak_ps_jul.AK
+    diff_ps = (
+        (hoque_ak_ps_jul.pressure - pa_ak_ps_jul.pressure)
+        * 100
+        / hoque_ak_ps_jul.pressure
+    )
 
 
 # %%
