@@ -132,6 +132,14 @@ def create_visit_mask():
     return mask
 
 
+def rmv_file(path):
+    if os.path.exists(path):
+        os.remove(path)
+        print(f"Removed file: {path}")
+    else:
+        print(f"File not found: {path}")
+
+
 class HCHO:
     hoque_reg_coords = {
         "REMOTE_PACIFIC": {
@@ -332,6 +340,29 @@ class HCHO_hoque(HCHO):
             self.lat_mean,
             self.reg_ss,
         ) = HCHO.cal_glob_reg_hcho(self.hcho, self.weights)
+
+
+def notused_load_hoque_aked_nc():
+    def process_nc(nc_path):
+        ds = xr.open_dataset(nc_path)
+        hcho = (
+            ds["partial_column"]
+            .sum("level")
+            .resample(time="1M")
+            .mean()
+            .to_dataset(name="hcho")
+        )
+        hcho = hcho.sortby("latitude", ascending=False)
+        hcho["hcho"] = hcho["hcho"] * 1e-15
+        return hcho.rename({"latitude": "lat", "longitude": "lon"})
+
+    base_dir = "/mnt/dg3/ngoc/emiisop_co2inhi_als/data/hoque_test"
+    hoque = f"{base_dir}/ch2o_hoque_sim_AKapplied_combined_2019.nc"
+    ngoc = f"{base_dir}/ch2o_ngoc_sim_AKapplied_combined_2019.nc"
+
+    prep_hoque = HCHO_hoque(process_nc(hoque))
+    prep_ngoc = HCHO_hoque(process_nc(ngoc))
+    return prep_hoque, prep_ngoc
 
 
 # chaser_hcho = prep_hcho_chaser(all_hcho_chaser_paths)

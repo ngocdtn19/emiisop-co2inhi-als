@@ -1,5 +1,6 @@
 # %%
 import matplotlib.pyplot as plt
+import matplotlib.cm as cm
 import scipy
 import numpy as np
 import seaborn as sns
@@ -20,42 +21,13 @@ SAT_NAMES = ["TROPO", "OMI"]
 CASES = [
     "VISITst20012023_nudg",
     "UKpft20012023_nudg",
-    # "MEGANst20012023_nudg",
-    # "MEGANpft20012023_nudg",
-    # "UKst20012023_nudg",
-    # "MIXpft20012023_nudg",
+    "MEGANst20012023_nudg",
+    "MEGANpft20012023_nudg",
+    "UKst20012023_nudg",
+    "MIXpft20012023_nudg",
+    "BVOCoff20012023_nudg",
     "OBS",
 ]
-# CASES = [
-# "hoque_sim_2019",
-# "VISITst20012023_nudg",
-# "hoque_aked",
-# "ngoc_aked",
-# "OBS",
-# "VISITst20172023_no_nudg",
-# ]
-
-# SATELLITE SETTING
-SAT_DIR = f"/mnt/dg3/ngoc/obs_data"
-TIME_OMI = "20050101-20231201"
-TIME_TROPO = "20180601-20240701"
-M_NAME_OMI = "mon_BIRA_OMI_HCHO_L3"
-M_NAME_TROPO = "mon_TROPOMI_HCHO_L3"
-
-OMI_FILE = f"{SAT_DIR}/{M_NAME_OMI}/EXTRACT/hcho_AERmon_{M_NAME_OMI}_historical_gn_{TIME_OMI}.nc"
-TROPO_FILE = f"{SAT_DIR}/{M_NAME_TROPO}/EXTRACT/hcho_AERmon_{M_NAME_TROPO}_historical_gn_{TIME_TROPO}.nc"
-
-# colors = [
-#     "#005a32",
-#     "#feb24c",
-#     "#f03b20",
-#     "#c6dbef",
-#     "#9ecae1",
-#     "#6baed6",
-#     "#4292c6",
-#     "#2171b5",
-#     "#084594",
-# ]
 
 colors = [
     "#D55E00",  # vermillion
@@ -65,51 +37,46 @@ colors = [
     "#F0E442",  # yellow
     "#0072B2",  # blue
     "#CC79A7",  # reddish purple
+    "#999933",  # olive green
+    "#882255",
 ]
 
 
-def list_all_files(base_dir):
+def list_all_files(base_dir, sat_ver):
     all_files = []
     for root, dirs, files in os.walk(base_dir):
         for file in files:
             file = os.path.join(root, file)
             for case in CASES:
                 if case in file:
-                    if "33" in file:
+                    if sat_ver in file:
                         all_files.append(file)
     return all_files
 
 
-def load_hoque_aked_nc():
-    def process_nc(nc_path):
-        ds = xr.open_dataset(nc_path)
-        hcho = (
-            ds["partial_column"]
-            .sum("level")
-            .resample(time="1M")
-            .mean()
-            .to_dataset(name="hcho")
-        )
-        hcho = hcho.sortby("latitude", ascending=False)
-        hcho["hcho"] = hcho["hcho"] * 1e-15
-        return hcho.rename({"latitude": "lat", "longitude": "lon"})
+def load_hcho(sat_name, sat_ver):
 
-    base_dir = "/mnt/dg3/ngoc/emiisop_co2inhi_als/data/hoque_test"
-    hoque = f"{base_dir}/ch2o_hoque_sim_AKapplied_combined_2019.nc"
-    ngoc = f"{base_dir}/ch2o_ngoc_sim_AKapplied_combined_2019.nc"
+    # SATELLITE SETTING
+    SAT_DIR = f"/mnt/dg3/ngoc/obs_data"
+    if sat_ver == "v1":
+        time_omi = "20050101-20231201"
+        time_tropo = "20180601-20240701"
+    else:
+        time_omi = "20050101-20221231"
+        time_tropo = "20180507-20231231"
 
-    prep_hoque = HCHO_hoque(process_nc(hoque))
-    prep_ngoc = HCHO_hoque(process_nc(ngoc))
-    return prep_hoque, prep_ngoc
+    M_NAME_OMI = f"mon_BIRA_OMI_HCHO_L3_{sat_ver}"
+    M_NAME_TROPO = f"mon_TROPOMI_HCHO_L3_{sat_ver}"
 
+    OMI_FILE = f"{SAT_DIR}/{M_NAME_OMI}/EXTRACT/hcho_AERmon_{M_NAME_OMI}_historical_gn_{time_omi}.nc"
+    TROPO_FILE = f"{SAT_DIR}/{M_NAME_TROPO}/EXTRACT/hcho_AERmon_{M_NAME_TROPO}_historical_gn_{time_tropo}.nc"
 
-def load_hcho(sat):
     base_dir = "/mnt/dg3/ngoc/emiisop_co2inhi_als/data/hcho_sat_ak_applied/"
-    files = list_all_files(base_dir)
+    files = list_all_files(base_dir, sat_ver)
 
-    obs = HCHO(TROPO_FILE) if sat == "tropo" else HCHO(OMI_FILE)
+    obs = HCHO(TROPO_FILE) if sat_name == "tropo" else HCHO(OMI_FILE)
 
-    ak_files = [f for f in files if sat in f]
+    ak_files = [f for f in files if sat_name in f]
     interp_files = [f for f in ak_files if "/sat_interp/" in f]
     nointerp_files = [f for f in ak_files if "/no_sat_interp/" in f]
 
@@ -118,14 +85,13 @@ def load_hcho(sat):
     hcho_interp["OBS"] = obs
     hcho_nointerp["OBS"] = obs
 
-    # hq_aked_hoque, hq_aked_ngoc = load_hoque_aked_nc()
-    # hcho_nointerp["hoque_aked"] = hq_aked_hoque
-    # hcho_nointerp["ngoc_aked"] = hq_aked_ngoc
     return hcho_interp, hcho_nointerp
 
 
-# interp_omi, nointerp_omi = load_hcho("omi")
-# interp_tropo, nointerp_tropo = load_hcho("tropo")
+# interp_omi_v1, nointerp_omi_v1 = load_hcho("omi", "v1")
+# interp_omi_v2, nointerp_omi_v2 = load_hcho("omi", "v2")
+# interp_tropo_v1, nointerp_tropo_v1 = load_hcho("tropo", "v1")
+# interp_tropo_v2, nointerp_tropo_v2 = load_hcho("tropo", "v2")
 
 
 # %%
@@ -161,22 +127,22 @@ def plt_reg(hcho_interp, hcho_nointerp, tits=None):
     # interested_case = list(hcho_interp.keys())
     interested_case = CASES
 
-    ylim_dict = {
-        "AMZ": (0, 20),
-        "ENA": (0, 15),
-        # "SAF": (0, 15),
-        # "MED": (0, 15),
-        # "CEU": (0, 15),
-        "EAS": (0, 15),
-        # "SAS": (0, 15),
-        "SEA": (0, 15),
-        "NAU": (0, 15),
-        "Indonesia": (0, 15),
-        "C_Africa": (0, 15),
-        "N_Africa": (0, 15),
-        "S_Africa": (0, 15),
-        "REMOTE_PACIFIC": (0, 4),
-    }
+    # ylim_dict = {
+    #     "AMZ": (0, 20),
+    #     "ENA": (0, 15),
+    #     # "SAF": (0, 15),
+    #     # "MED": (0, 15),
+    #     # "CEU": (0, 15),
+    #     "EAS": (0, 15),
+    #     # "SAS": (0, 15),
+    #     "SEA": (0, 15),
+    #     "NAU": (0, 15),
+    #     "Indonesia": (0, 15),
+    #     "C_Africa": (0, 15),
+    #     "N_Africa": (0, 15),
+    #     "S_Africa": (0, 15),
+    #     "REMOTE_PACIFIC": (0, 4),
+    # }
 
     for mode in ["ss", "ann"]:
         index = "month" if mode == "ss" else "year"
@@ -198,8 +164,8 @@ def plt_reg(hcho_interp, hcho_nointerp, tits=None):
                         lw=2,
                     )
                 # Set y-axis limit
-                if r in ylim_dict:
-                    ax.set_ylim(ylim_dict[r])
+                # if r in ylim_dict:
+                #     ax.set_ylim(ylim_dict[r])
 
                 handles, labels = ax.get_legend_handles_labels()
                 ax.get_legend().remove()
@@ -220,6 +186,42 @@ def plt_reg(hcho_interp, hcho_nointerp, tits=None):
                 bbox_to_anchor=(0.5, -0.06),
             )
             plt.suptitle(tits[k], fontsize=16, fontweight="bold")
+
+
+def plt_metric_reg(hcho_dict):
+
+    list_case = list(hcho_dict.keys())
+    list_reg = list(hcho_dict[list_case[0]].reg_ann.keys())
+    R = {"model": list_case[:-1]}
+    rmse = {"model": list_case[:-1]}
+    trend = {"model": list_case}
+    obs_c = list_case[-1]
+
+    for reg in list_reg:
+        if reg != "REMOTE_PACIFIC":
+            R[reg] = []
+            rmse[reg] = []
+            for c in list_case[:-1]:
+
+                model_reg = hcho_dict[c].reg_ann[reg]
+                obs_reg = hcho_dict[obs_c].reg_ann[reg]
+
+                # print(reg, c)
+                R[reg].append(pearsonr(model_reg, obs_reg)[0])
+                rmse[reg].append(np.sqrt(mse(obs_reg, model_reg)))
+
+            trend[reg] = []
+            trend[f"{reg}_sig"] = []
+            for c in list_case:
+                hcho_reg = hcho_dict[c].reg_ann[reg]
+                trend_dict = pymk.original_test(hcho_reg, alpha=0.05)
+                trend[reg].append(trend_dict.slope)
+                trend[f"{reg}_sig"].append(0 if not trend_dict.h else 1)
+
+    rmse = pd.DataFrame.from_dict(rmse).round(2)
+    R = pd.DataFrame.from_dict(R).round(2)
+    trend = pd.DataFrame.from_dict(trend).round(2)
+    return rmse, R, trend
 
 
 def plt_map_mean_ss(hcho_interp, hcho_nointerp, sat_name):
@@ -799,6 +801,67 @@ def plt_check_interpolated_AK():
         * 100
         / hoque_ak_ps_jul.pressure
     )
+
+
+def plt_check_glob_AK_OMI(mode="profile"):
+    SAT_DIR = f"/mnt/dg3/ngoc/obs_data"
+    TIME_OMI = "20050101-20231201"
+    TIME_TROPO = "20180601-20240701"
+    M_NAME_OMI = "mon_BIRA_OMI_HCHO_L3"
+    M_NAME_TROPO = "mon_TROPOMI_HCHO_L3"
+
+    OMI_FILE = f"{SAT_DIR}/{M_NAME_OMI}/EXTRACT/hcho_AERmon_{M_NAME_OMI}_historical_gn_{TIME_OMI}.nc"
+    ds_omi = xr.open_dataset(OMI_FILE)
+    ak = ds_omi["AK"]
+
+    if mode != "profile":
+        # Step 1: Compute the global mean over lat, lon, and layer
+        ak_global_mean = ak.mean(dim=["lat", "lon", "layer"])
+
+        # Step 2: Group by year and take the mean across each year
+        ak_annual_mean = ak_global_mean.groupby("time.year").mean(dim="time")
+
+        # Extract data for plotting
+        years = ak_annual_mean.year.values.astype(int)
+        values = ak_annual_mean.values
+
+        # Step 3: Plot with integer x-axis
+        plt.figure(figsize=(8, 5))
+        plt.plot(years, values, marker="o", linewidth=2)
+        plt.title("Global Mean of AK by Year - OMI")
+        plt.xlabel("Year")
+        plt.ylabel("AK (global mean)")
+        plt.xticks(ticks=years, labels=years, rotation=45)
+    else:
+        ak_global_mean_by_layers = ak.mean(dim=["lat", "lon"])
+        ak_annual_mean_by_layer = ak_global_mean_by_layers.groupby("time.year").mean(
+            dim="time"
+        )
+        years = ak_annual_mean_by_layer.year.values
+        n_years = len(years)
+        colors = cm.viridis(
+            np.linspace(0, 1, n_years)
+        )  # choose colormap (e.g., viridis)
+
+        plt.figure(figsize=(8, 7))
+        for i, y in enumerate(years):
+            plt.plot(
+                ak_annual_mean_by_layer.sel(year=y),
+                ak_annual_mean_by_layer.layer,
+                color=colors[i],
+                linewidth=2,
+            )
+
+        plt.xlabel("AK")
+        plt.ylabel("Layer")
+        plt.title("AK Vertical Profile of OMI (2005–2023)")
+
+        # Add colorbar to show which color corresponds to which year
+        sm = plt.cm.ScalarMappable(
+            cmap=cm.viridis, norm=plt.Normalize(vmin=years.min(), vmax=years.max())
+        )
+        cbar = plt.colorbar(sm, label="Year")
+        plt.grid(True)
 
 
 # %%

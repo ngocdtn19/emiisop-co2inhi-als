@@ -32,7 +32,41 @@ MG_2_TG = 1e-18  # convert from micro gram to Teragram
 
 REGION = regionmask.defined_regions.srex
 # LIST_REGION = [REGION.regions[i].abbrev for i in REGION.regions.keys()]
-LIST_REGION = ["AMZ", "ENA", "SAF", "MED", "CEU", "EAS", "SAS", "SEA", "NAU"]
+
+LIST_SREX_REGION = [
+    "AMZ",
+    "ENA",
+    #    "SAF",
+    #    "MED",
+    #    "CEU",
+    "EAS",
+    #    "SAS",
+    "SEA",
+    "NAU",
+]
+
+hoque_reg_coords = {
+    "Indonesia": {
+        "lat": [6, -10],  # 6°N to 10°S (descending]
+        "lon": [95, 142],  # 95°E to 142°E
+    },
+    "C_Africa": {
+        "lat": [5, -4],  # 5°N to 4°S
+        "lon": [10, 40],  # 10°E to 40°E
+    },
+    "N_Africa": {
+        "lat": [15, 5],  # 15°N to 5°N
+        "lon": [-10, 30],  # 10°W to 30°E → -10 to 30
+    },
+    "S_Africa": {
+        "lat": [-5, -15],  # 5°S to 15°S
+        "lon": [10, 30],  # 10°E to 30°E
+    },
+}
+
+HOQUE_REGIONS = list(hoque_reg_coords.keys())
+LIST_REGION = LIST_SREX_REGION + HOQUE_REGIONS
+
 LIST_COLOR = [
     "#ff5005",
     "#ffe100",

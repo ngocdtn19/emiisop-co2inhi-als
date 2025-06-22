@@ -6,10 +6,12 @@ AK.py
         4.1. sat_interp in [True, False]: 
             1 - interpolated hcho, temp
             0 - no interpolation
-    5: run ak_apply_to_chaser_do()
+    5: run ak_apply_to_chaser_do("v1")
 plt.py
-    run interp_omi, nointerp_omi = load_hcho("omi")
-    run interp_tropo, nointerp_tropo = load_hcho("tropo")
+    run interp_omi_v1, nointerp_omi_v1 = load_hcho("omi", "v1")
+    run interp_omi_v2, nointerp_omi_v2 = load_hcho("omi", "v2")
+    run interp_tropo_v1, nointerp_tropo_v1 = load_hcho("tropo", "v1")
+    run interp_tropo_v2, nointerp_tropo_v2 = load_hcho("tropo", "v2")
 
 #for non-AK comparison
 non_AK_comparison.py
@@ -17,15 +19,16 @@ non_AK_comparison.py
     2. run chaser_tcol_cal()
     3. run hcho = load_data()
     # %%
+    # %%
+    sat_ver = "v1"
     SAT_DIR = f"/mnt/dg3/ngoc/obs_data"
-    TIME_OMI = "20050101-20231201"
-    TIME_TROPO = "20180601-20240701"
-    M_NAME_OMI = "mon_BIRA_OMI_HCHO_L3"
-    M_NAME_TROPO = "mon_TROPOMI_HCHO_L3"
+    time_omi = "20050101-20231201"
+    time_tropo = "20180601-20240701"
+    M_NAME_OMI = f"mon_BIRA_OMI_HCHO_L3_{sat_ver}"
+    M_NAME_TROPO = f"mon_TROPOMI_HCHO_L3_{sat_ver}"
 
-    OMI_FILE = f"{SAT_DIR}/{M_NAME_OMI}/EXTRACT/hcho_AERmon_{M_NAME_OMI}_historical_gn_{TIME_OMI}.nc"
-    TROPO_FILE = f"{SAT_DIR}/{M_NAME_TROPO}/EXTRACT/hcho_AERmon_{M_NAME_TROPO}_historical_gn_{TIME_TROPO}.nc"
-
+    OMI_FILE = f"{SAT_DIR}/{M_NAME_OMI}/EXTRACT/hcho_AERmon_{M_NAME_OMI}_historical_gn_{time_omi}.nc"
+    TROPO_FILE = f"{SAT_DIR}/{M_NAME_TROPO}/EXTRACT/hcho_AERmon_{M_NAME_TROPO}_historical_gn_{time_tropo}.nc"
     hcho["TROPOMI"] = HCHO(TROPO_FILE)
     hcho["OMI"] = HCHO(OMI_FILE)
     # %%

@@ -27,16 +27,16 @@ def satellite_HchoL3_extract(product="tropomi"):
     data_dir = f"/mnt/dg3/ngoc/obs_data"
 
     # OMI data
-    m_name = "mon_BIRA_OMI_HCHO_L3"
+    m_name = "mon_BIRA_OMI_HCHO_L3_v2"
     org_hcho_files = glob.glob(os.path.join(data_dir, m_name, "ORG", "*/*.nc"))
     ak_col = "HCHO_averaging_kernel"
-    time = "20050101-20231201"
+    time = "20050101-20221231"
 
     # TROPOOMI data
     if product == "tropomi":
-        m_name = "mon_TROPOMI_HCHO_L3"
-        org_hcho_files = glob.glob(os.path.join(data_dir, m_name, "ORG", "*.nc"))
-        time = "20180601-20240701"
+        m_name = "mon_TROPOMI_HCHO_L3_v2"
+        org_hcho_files = glob.glob(os.path.join(data_dir, m_name, "ORG", "*/*.nc"))
+        time = "20180507-20231231"
 
     vars = [
         "tropospheric_HCHO_column_number_density_clear",
@@ -54,8 +54,12 @@ def satellite_HchoL3_extract(product="tropomi"):
         print(f)
         ds = xr.open_dataset(f)
         ds = ds[vars]
-        ds = prep_hcho_tropomi(ds)
-        final_ds.append(ds)
+        try:
+            ds = prep_hcho_tropomi(ds)
+            final_ds.append(ds)
+        except Exception as e:
+            print(f"Error processing file {f}: {e}")
+            continue
 
     final_ds = xr.concat(final_ds, dim="time")
     final_ds = final_ds.sortby("time")

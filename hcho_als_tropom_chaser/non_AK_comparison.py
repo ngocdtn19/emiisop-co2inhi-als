@@ -23,6 +23,7 @@ Clon, Clat = geogrid.getlonlat()
 
 BASE_DIR = "/mnt/dg3/ngoc/CHASER_output"
 CASES = [
+    "BVOCoff20012023_nudg",
     # "VISIT20172023_no_nudg",
     "VISITst20012023_nudg",
     # "hoque_sim",
@@ -192,7 +193,7 @@ def load_data():
 
     # this var is before correction
     # hcho["TROPOMI"] = HCHO(TROPO_FILE, hcho_var="tcolhcho_apriori")
-    # hcho["OMI"] = HCHO(OMI_FILE, hcho_var="tcolhcho_apriori")
+    # hcho["non-AKed_OMI"] = HCHO(OMI_FILE, hcho_var="tcolhcho_apriori")
 
     return hcho
 
@@ -211,15 +212,15 @@ def plt_reg(hcho):
         # "REMOTE_PACIFIC",
     ]
     colors = [
-        "#D55E00",  # vermillion
-        "#E69F00",  # orange
+        "#882255",  # reddish brown
         "#56B4E9",  # sky blue
         "#009E73",  # bluish green
         "#F0E442",  # yellow
         "#0072B2",  # blue
         "#CC79A7",  # reddish purple
         "#999933",  # olive green
-        "#882255",
+        "#D55E00",  # vermillion
+        "#E69F00",  # orange
     ]
 
     ylim_dict = {
@@ -236,10 +237,11 @@ def plt_reg(hcho):
         "C_Africa": (0, 20),
         "N_Africa": (0, 20),
         "S_Africa": (0, 20),
-        "REMOTE_PACIFIC": (0, 4),
+        # "REMOTE_PACIFIC": (0, 4),
     }
 
     tits = ["Seasonal", "Inter-annual Variability"]
+    off_c = CASES[0]
     for k, mode in enumerate(["ss", "ann"]):
         index = "month" if mode == "ss" else "year"
         fig, axis = plt.subplots(3, 3, figsize=(3 * 3, 3 * 3), layout="constrained")
@@ -247,9 +249,19 @@ def plt_reg(hcho):
         for i, r in enumerate(list_regions):
             ri, ci = i // 3, i % 3
             ax = axis[ri, ci]
-            for j, c in enumerate(list(hcho.keys())[::-1]):
+            for j, c in enumerate(list(hcho.keys())[1:]):
                 ds = hcho[c].reg_ss if mode == "ss" else hcho[c].reg_ann
                 reg_df = ds[[index, r]].set_index(index).rename(columns={r: c})
+                # bvoc off start
+                ds_bvoc_off = (
+                    hcho[off_c].reg_ss if mode == "ss" else hcho[off_c].reg_ann
+                )
+                reg_bvoc_off = (
+                    ds_bvoc_off[[index, r]].set_index(index).rename(columns={r: c})
+                )
+                if c not in ["OMI", "TROPOMI"]:
+                    reg_df[c] = reg_df[c] - reg_bvoc_off[c]
+                # bvoc off end
                 sns.lineplot(
                     reg_df,
                     ax=ax,

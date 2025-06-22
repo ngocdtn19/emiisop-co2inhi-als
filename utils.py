@@ -23,11 +23,15 @@ def clip_region_mask(ds, region_name="SEA"):
         Clipped xarray ds
     """
     # print(region_name)
-
-    region_mask = regionmask.defined_regions.srex[[region_name]]
-    gdf = gpd.GeoDataFrame([1], geometry=region_mask.polygons, crs=WORLD_SHP.crs)
-
-    return ds.rio.clip(gdf.geometry, crs=gdf.crs)
+    if region_name not in HOQUE_REGIONS:
+        region_mask = regionmask.defined_regions.srex[[region_name]]
+        gdf = gpd.GeoDataFrame([1], geometry=region_mask.polygons, crs=WORLD_SHP.crs)
+        subset = ds.rio.clip(gdf.geometry, crs=gdf.crs)
+    else:
+        lat = hoque_reg_coords[region_name]["lat"]
+        lon = hoque_reg_coords[region_name]["lon"]
+        subset = ds.sel(lon=slice(lon[0], lon[1]), lat=slice(lat[0], lat[1]))
+    return subset
 
 
 def get_model_name(path):

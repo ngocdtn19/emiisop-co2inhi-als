@@ -18,9 +18,7 @@ geogrid = pygtool.readgrid()
 Clon, Clat = geogrid.getlonlat()
 BASE_DIR = "/mnt/dg3/ngoc/CHASER_output"
 CASES = [f.split("/")[-1] for f in glob(f"{BASE_DIR}/*20012023_nudg")]
-# CASES = ["VISIT20172023_no_nudg", "UKpft20172023_no_nudg"]
-# CASES = ["MIXpft20012023_nudg", "UKst20012023_nudg"]
-# CASES = ["XhalfUKpft20012023"]
+# CASES = ["BVOCoff20012023_nudg"]
 SIGMA = load_sigma()
 
 # step 1
@@ -32,7 +30,7 @@ SIGMA = load_sigma()
 #  - note: no use of CHASER pressure
 
 
-def sampling_12to14h(years=np.arange(2001, 2024), cases=CASES):
+def sampling_12to14h(years=np.arange(2005, 2024), cases=CASES):
     def process_ps(ds):
         ps = ds["PS"].values
         ps_layers = [ps * SIGMA[l] for l in range(len(SIGMA))]
@@ -52,8 +50,8 @@ def sampling_12to14h(years=np.arange(2001, 2024), cases=CASES):
             },
         )
 
-    # vars = ["ch2o", "t"]
-    vars = ["ps"]
+    vars = ["ch2o", "t", "ps"]
+    # vars = ["ps"]
     sigma = np.arange(1, 37)
 
     for case in cases:
@@ -85,8 +83,12 @@ def sampling_12to14h(years=np.arange(2001, 2024), cases=CASES):
                     gtool.set_datetimeindex(time)
                     var_ds = gtool.to_xarray(lat=Clat, lon=Clon, na_values=np.nan)
                 sampled_ds = var_ds.sel(time=(var_ds.time.dt.hour.isin([12, 14])))
-                # sampled_ds = sampled_ds.groupby(sampled_ds.time.dt.date).mean()
-                # sampled_ds = sampled_ds.rename({"date": "time"})
+
+                sampled_ds = sampled_ds.groupby(sampled_ds.time.dt.date).mean()
+                sampled_ds = sampled_ds.rename({"date": "time"})
+
+                sampled_ds["time"] = pd.to_datetime(sampled_ds["time"].values)
+
                 sampled_ds = process_ps(sampled_ds) if var == "ps" else sampled_ds
 
                 list_ds.append(sampled_ds)
@@ -97,15 +99,14 @@ def sampling_12to14h(years=np.arange(2001, 2024), cases=CASES):
             #     concat_ds.time.values, dtype="datetime64[D]"
             # )
 
-            # concat_ds.to_netcdf(out_file)
-            concat_ds.to_netcdf(
-                out_file,
-                encoding={
-                    "time": {"dtype": "int64", "units": "hours since 1970-01-01"}
-                },
-            )
-
-        print(case, var)
+            concat_ds.to_netcdf(out_file)
+            print(case, var)
+            # concat_ds.to_netcdf(
+            #     out_file,
+            #     encoding={
+            #         "time": {"dtype": "int64", "units": "hours since 1970-01-01"}
+            #     },
+            # )
 
 
 # step 2
@@ -313,6 +314,7 @@ def ak_apply_chaser(
 
     c_temp = Ctemp_filtered["T"].values  # (time, lat, lon, layer)
     c_ch2o = Cch2o_filtered["CH2O"].values  # (time, lat, lon, layer)
+    c_ps = Cps_filtered["PS"].values  # (time, lat, lon, layer)
 
     if sat_interp:
         c_temp = sat_intep_temp.values  # (time, lat, lon, layer)
@@ -348,10 +350,16 @@ def ak_apply_chaser(
         # print(sat_pressure.time.values)
 
     hcho_layers = []
-    for l in range(sat_ak.shape[-1] - 1):
+    no_layers = 36 if sat_ak.shape[-1] > 36 else sat_ak.shape[-1]
+    for l in range(no_layers - 1):
+        # sattelite pressure
         l_ps = l + 1
         p = sat_ps_val[:, :, :, l_ps]
         p_next = sat_ps_val[:, :, :, l_ps + 1]
+
+        # chaser pressure
+        # p = c_ps[:, :, :, l]
+        # p_next = c_ps[:, :, :, l + 1]
 
         ak = sat_ak[:, :, :, l]
 
@@ -363,7 +371,8 @@ def ak_apply_chaser(
 
         hcho_layers.append(ak_hcho)
 
-    assert len(hcho_layers) == 33
+    assert len(hcho_layers) == no_layers - 1
+    print("No. layers: ", len(hcho_layers))
 
     hcho_ds = xr.Dataset(
         {
@@ -386,14 +395,18 @@ def ak_apply_chaser(
     return hcho_ds_filter
 
 
-def ak_apply_to_chaser_do():
+def ak_apply_to_chaser_do(sat_version="v1"):
 
     sat_dir = f"/mnt/dg3/ngoc/obs_data"
-    time_omi = "20050101-20231201"
-    time_tropo = "20180601-20240701"
+    if sat_version == "v1":
+        time_omi = "20050101-20231201"
+        time_tropo = "20180601-20240701"
+    else:
+        time_omi = "20050101-20221231"
+        time_tropo = "20180507-20231231"
 
-    m_name_omi = "mon_BIRA_OMI_HCHO_L3"
-    m_name_tropo = "mon_TROPOMI_HCHO_L3"
+    m_name_omi = f"mon_BIRA_OMI_HCHO_L3_{sat_version}"
+    m_name_tropo = f"mon_TROPOMI_HCHO_L3_{sat_version}"
 
     omi_file = f"{sat_dir}/{m_name_omi}/EXTRACT/hcho_AERmon_{m_name_omi}_historical_gn_{time_omi}.nc"
     tropo_file = f"{sat_dir}/{m_name_tropo}/EXTRACT/hcho_AERmon_{m_name_tropo}_historical_gn_{time_tropo}.nc"
@@ -403,8 +416,8 @@ def ak_apply_to_chaser_do():
     ds_omi = xr.open_dataset(omi_file)
     omi_pressure = extract_layer_sat_ps(ds_omi)
 
-    ds_tropo = xr.open_dataset(tropo_file)
-    tropo_pressure = extract_layer_sat_ps(ds_tropo)
+    # ds_tropo = xr.open_dataset(tropo_file)
+    # tropo_pressure = extract_layer_sat_ps(ds_tropo)
 
     for sat_interp in [True, False]:
         for case in CASES:
@@ -432,15 +445,15 @@ def ak_apply_to_chaser_do():
 
             ps_ds = ps_ds.rename({list(ps_ds.data_vars)[0]: "PS"})
 
-            ch2o_tropo_ak = ak_apply_chaser(
-                ds_tropo,
-                t_ds,
-                ch2o_ds,
-                ps_ds,
-                tropo_pressure,
-                f"{case}_TROPO",
-                sat_interp,
-            )
+            # ch2o_tropo_ak = ak_apply_chaser(
+            #     ds_tropo,
+            #     t_ds,
+            #     ch2o_ds,
+            #     ps_ds,
+            #     tropo_pressure,
+            #     f"{case}_TROPO",
+            #     sat_interp,
+            # )
             ch2o_omi_ak = ak_apply_chaser(
                 ds_omi, t_ds, ch2o_ds, ps_ds, omi_pressure, f"{case}_OMI", sat_interp
             )
@@ -455,8 +468,21 @@ def ak_apply_to_chaser_do():
 
             print(case, interp_folder)
 
-            ch2o_tropo_ak.to_netcdf(f"{out_dir_case}/tropo_ak_hcho_33.nc")
-            ch2o_omi_ak.to_netcdf(f"{out_dir_case}/omi_ak_hcho_33.nc")
+            # ch2o_tropo_ak.to_netcdf(f"{out_dir_case}/tropo_ak_hcho_{sat_version}.nc")
+            ch2o_omi_ak.to_netcdf(f"{out_dir_case}/omi_ak_hcho_{sat_version}.nc")
+
+
+def clean_before_ak(keywords, base_dir=None):
+    if base_dir is None:
+        base_dir = f"/mnt/dg3/ngoc/emiisop_co2inhi_als/data/hcho_sat_ak_applied"
+
+    for root, dirs, files in os.walk(base_dir):
+        for file in files:
+            file = os.path.join(root, file)
+            for case in CASES:
+                if case in file:
+                    if keywords in file:
+                        rmv_file(file)
 
 
 def ak_do_hoque_ch2o_tropo_l2():
