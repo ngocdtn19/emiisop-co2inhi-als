@@ -20,12 +20,12 @@ SAT_NAMES = ["TROPO", "OMI"]
 # CASES = [f.split("/")[-1] for f in glob(f"{ORG_CHASER_DIR}/*2023_*")]
 CASES = [
     "VISITst20012023_nudg",
-    "UKpft20012023_nudg",
-    "MEGANst20012023_nudg",
-    "MEGANpft20012023_nudg",
-    "UKst20012023_nudg",
-    "MIXpft20012023_nudg",
-    "BVOCoff20012023_nudg",
+    # "UKpft20012023_nudg",
+    # "MEGANst20012023_nudg",
+    # "MEGANpft20012023_nudg",
+    # "UKst20012023_nudg",
+    # "MIXpft20012023_nudg",
+    # "BVOCoff20012023_nudg",
     "OBS",
 ]
 
@@ -49,7 +49,7 @@ def list_all_files(base_dir, sat_ver):
             file = os.path.join(root, file)
             for case in CASES:
                 if case in file:
-                    if sat_ver in file:
+                    if sat_ver in file and "ak_assign" in file:
                         all_files.append(file)
     return all_files
 
@@ -73,6 +73,7 @@ def load_hcho(sat_name, sat_ver):
 
     base_dir = "/mnt/dg3/ngoc/emiisop_co2inhi_als/data/hcho_sat_ak_applied/"
     files = list_all_files(base_dir, sat_ver)
+    print(files)
 
     obs = HCHO(TROPO_FILE) if sat_name == "tropo" else HCHO(OMI_FILE)
 

@@ -81,6 +81,21 @@ def prep_hcho_tropomi(chaser_lat=chaser_lat, chaser_lon=chaser_lon):
 
     return ds
 
+def mask_chaser_by_sat_hcho(chaser_ds, sat_ds, var_name="tcolhcho"):
+
+    if var_name not in sat_ds:
+        raise ValueError(f"Variable '{var_name}' not found in sat_ds.")
+
+    # Create mask: 1 where sat_ds[var_name] is not NaN, NaN where it is NaN
+    mask = xr.where(~sat_ds[var_name].isnull(), 1.0, np.nan)
+
+    assert (
+        chaser_ds.shape == mask.shape
+    ), f"Shape mismatch: chaser_ds.hcho {chaser_ds.shape} and mask {mask.shape}"
+
+    masked_chaser = chaser_ds * mask
+
+    return masked_chaser
 
 def cal_mk_map(ds, product_name):
     file_mk_org = os.path.join("./plt_data/mk", f"{product_name}.nc")
