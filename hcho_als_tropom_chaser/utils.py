@@ -11,6 +11,8 @@ import regionmask
 import pandas as pd
 import mk
 import copy
+import matplotlib.pyplot as plt
+import matplotlib.cm as cm
 
 from datetime import datetime
 from mypath import *
@@ -81,6 +83,7 @@ def prep_hcho_tropomi(chaser_lat=chaser_lat, chaser_lon=chaser_lon):
 
     return ds
 
+
 def mask_chaser_by_sat_hcho(chaser_ds, sat_ds, var_name="tcolhcho"):
 
     if var_name not in sat_ds:
@@ -96,6 +99,7 @@ def mask_chaser_by_sat_hcho(chaser_ds, sat_ds, var_name="tcolhcho"):
     masked_chaser = chaser_ds * mask
 
     return masked_chaser
+
 
 def cal_mk_map(ds, product_name):
     file_mk_org = os.path.join("./plt_data/mk", f"{product_name}.nc")
@@ -153,6 +157,69 @@ def rmv_file(path):
         print(f"Removed file: {path}")
     else:
         print(f"File not found: {path}")
+
+
+def min_max_normalize(arr):
+    arr_min = np.nanmin(arr)
+    arr_max = np.nanmax(arr)
+    return (arr - arr_min) / (arr_max - arr_min)
+
+
+def check_ak_by_plt(model_ak, sat_ak, model_pressure, sat_pressure):
+    time_steps = model_ak.shape[0]
+    n_model_layer = model_ak.shape[-1]
+    n_sat_layer = sat_pressure.shape[-1]
+
+    # Compute mean over lat/lon
+    data_list = [
+        (
+            np.nanmean(model_ak, axis=(1, 2)),
+            n_model_layer,
+            "AK Value",
+            "Model AK",
+        ),
+        (
+            np.nanmean(sat_ak, axis=(1, 2)),
+            n_sat_layer,
+            "AK Value",
+            "Sattellite AK",
+        ),
+        (
+            np.nanmean(model_pressure, axis=(1, 2)),
+            n_model_layer,
+            "Pressure",
+            "Model Pressure",
+        ),
+        (
+            np.nanmean(sat_pressure, axis=(1, 2)),
+            n_sat_layer,
+            "Pressure",
+            "Satellite Pressure",
+        ),
+    ]
+
+    colors = cm.viridis(np.linspace(0, 1, time_steps))
+
+    # Create subplots
+    fig, axs = plt.subplots(
+        1, 4, figsize=(24, 6), sharey=False, constrained_layout=True
+    )
+
+    # Loop over subplots
+    for i, (data, n_layer, xlabel, title) in enumerate(data_list):
+        for t in range(time_steps):
+            axs[i].plot(data[t], np.arange(n_layer), color=colors[t])
+        axs[i].set_xlabel(xlabel)
+        axs[i].set_ylabel("Layer Index")
+        axs[i].set_title(title)
+        axs[i].grid(True)
+        axs[i].set_ylim(0, 40)  # Reverse y-axis for layers
+
+    # Colorbar
+    sm = cm.ScalarMappable(cmap=cm.viridis, norm=plt.Normalize(0, time_steps - 1))
+    fig.colorbar(sm, ax=axs[-1], label="Time Index")
+
+    plt.show()
 
 
 class HCHO:

@@ -18,7 +18,7 @@ geogrid = pygtool.readgrid()
 Clon, Clat = geogrid.getlonlat()
 BASE_DIR = "/mnt/dg3/ngoc/CHASER_output"
 CASES = [f.split("/")[-1] for f in glob(f"{BASE_DIR}/*20012023_nudg")]
-CASES = ["VISITst20012023_nudg"]
+# CASES = ["VISITst20012023_nudg"]
 SIGMA = load_sigma()
 
 # step 1
@@ -290,26 +290,29 @@ def interp_to_chaser(chaser_ds, sat_ds):
     )
     return interp_ak.where(np.isfinite(interp_ak), np.nan)
 
-def assign_ak_to_model(model_pressure, tropomi_pressure, ak):
+
+def assign_ak_to_model(model_pressure, sat_pressure, sat_ak):
     print("Assigning AK to model pressure layers...")
     time, lat, lon, model_layers = model_pressure.shape
-    _, _, _, sat_layers = tropomi_pressure.shape
+    _, _, _, sat_layers = sat_pressure.shape
 
     p_model = model_pressure.values
-    p_tropomi = tropomi_pressure.values
-    ak_tropomi = ak.values
+    p_sat = sat_pressure.values
+    ak_sat = sat_ak.values
+
+    n_layers = min(model_layers, sat_layers)
 
     mapped_ak = np.full_like(p_model, np.nan)
 
     for t in range(time):
         for y in range(lat):
             for x in range(lon):
-            
-                p_trop = p_tropomi[t, y, x, :]
+
+                p_trop = p_sat[t, y, x, :]
                 if np.any(np.isnan(p_trop)):
                     continue
 
-                for m in range(model_layers):
+                for m in range(n_layers):
                     p_mod = p_model[t, y, x, m]
 
                     if np.isnan(p_mod):
@@ -318,10 +321,14 @@ def assign_ak_to_model(model_pressure, tropomi_pressure, ak):
 
                     if idx.size > 0:
                         i = idx[0]
-                        mapped_ak[t, y, x, m] = ak_tropomi[t, y, x, i]
+                        mapped_ak[t, y, x, m] = ak_sat[t, y, x, i]
                     else:
                         continue
-    return np.nan_to_num(mapped_ak)
+    # mapped_ak = np.nan_to_num(mapped_ak)
+
+    print(mapped_ak.shape)
+    return mapped_ak
+
 
 def ak_apply(p, p_next, t, t_next, ak, hcho):
     def p2h(p, t):
@@ -360,8 +367,8 @@ def ak_apply_chaser(sat_ds, chaser_ds, interp_to):
         )
 
     hcho_layers = []
-    no_layers = 36 if used_ak.shape[-1] > 36 else used_ak.shape[-1]
-    # no_layers = 16
+    # no_layers = 36 if used_ak.shape[-1] > 36 else used_ak.shape[-1]
+    no_layers = 16
     for l in range(no_layers - 1):
         p = sat_ps_val[:, :, :, l]
         p_next = sat_ps_val[:, :, :, l + 1]
@@ -452,7 +459,9 @@ def ak_apply_to_chaser_do(sat_version="v1"):
             ch2o_tropo_aked.to_netcdf(
                 f"{out_dir_case}/tropo_ak_hcho_{sat_version}_ak_assign.nc"
             )
-            ch2o_omi_aked.to_netcdf(f"{out_dir_case}/omi_ak_hcho_{sat_version}_ak_assign.nc")
+            ch2o_omi_aked.to_netcdf(
+                f"{out_dir_case}/omi_ak_hcho_{sat_version}_ak_assign.nc"
+            )
 
 
 def clean_before_ak(keywords, base_dir=None):

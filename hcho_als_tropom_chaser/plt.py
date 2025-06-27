@@ -20,13 +20,13 @@ SAT_NAMES = ["TROPO", "OMI"]
 # CASES = [f.split("/")[-1] for f in glob(f"{ORG_CHASER_DIR}/*2023_*")]
 CASES = [
     "VISITst20012023_nudg",
-    # "UKpft20012023_nudg",
-    # "MEGANst20012023_nudg",
-    # "MEGANpft20012023_nudg",
-    # "UKst20012023_nudg",
-    # "MIXpft20012023_nudg",
-    # "BVOCoff20012023_nudg",
+    "UKpft20012023_nudg",
+    "MEGANst20012023_nudg",
+    "MEGANpft20012023_nudg",
+    "UKst20012023_nudg",
+    "MIXpft20012023_nudg",
     "OBS",
+    "BVOCoff20012023_nudg",
 ]
 
 colors = [
@@ -96,7 +96,7 @@ def load_hcho(sat_name, sat_ver):
 
 
 # %%
-def plt_reg(hcho_interp, hcho_nointerp, tits=None):
+def plt_reg(hcho_interp, hcho_nointerp, norm=True, tits=None, unit=None):
 
     list_regions = [
         "AMZ",
@@ -128,22 +128,22 @@ def plt_reg(hcho_interp, hcho_nointerp, tits=None):
     # interested_case = list(hcho_interp.keys())
     interested_case = CASES
 
-    # ylim_dict = {
-    #     "AMZ": (0, 20),
-    #     "ENA": (0, 15),
-    #     # "SAF": (0, 15),
-    #     # "MED": (0, 15),
-    #     # "CEU": (0, 15),
-    #     "EAS": (0, 15),
-    #     # "SAS": (0, 15),
-    #     "SEA": (0, 15),
-    #     "NAU": (0, 15),
-    #     "Indonesia": (0, 15),
-    #     "C_Africa": (0, 15),
-    #     "N_Africa": (0, 15),
-    #     "S_Africa": (0, 15),
-    #     "REMOTE_PACIFIC": (0, 4),
-    # }
+    ylim_dict = {
+        "AMZ": (0, 25),
+        "ENA": (0, 20),
+        # "SAF": (0, 15),
+        # "MED": (0, 15),
+        # "CEU": (0, 15),
+        "EAS": (0, 20),
+        # "SAS": (0, 15),
+        "SEA": (0, 15),
+        "NAU": (0, 15),
+        "Indonesia": (0, 15),
+        "C_Africa": (0, 25),
+        "N_Africa": (0, 25),
+        "S_Africa": (0, 25),
+        "REMOTE_PACIFIC": (0, 4),
+    }
 
     for mode in ["ss", "ann"]:
         index = "month" if mode == "ss" else "year"
@@ -157,6 +157,8 @@ def plt_reg(hcho_interp, hcho_nointerp, tits=None):
                 for j, c in enumerate(interested_case):
                     ds = hcho[c].reg_ss if mode == "ss" else hcho[c].reg_ann
                     reg_df = ds[[index, r]].set_index(index).rename(columns={r: c})
+                    if norm:
+                        reg_df[c] = min_max_normalize(reg_df[c])
                     sns.lineplot(
                         reg_df,
                         ax=ax,
@@ -176,7 +178,11 @@ def plt_reg(hcho_interp, hcho_nointerp, tits=None):
                     ax.set_xticks(np.arange(1, 13))
                 if ri < 2:
                     ax.set_xlabel("")
-                ax.set_ylabel("(\u00d710$^{15}$ molec.cm$^{-2}$)")
+
+                if unit is None:
+                    unit = "(\u00d710$^{15}$ molec.cm$^{-2}$)"
+                ax.set_ylabel(unit)
+
                 ax.set_title(f"{r}")
 
             fig.legend(
@@ -863,6 +869,11 @@ def plt_check_glob_AK_OMI(mode="profile"):
         )
         cbar = plt.colorbar(sm, label="Year")
         plt.grid(True)
+
+
+def plt_ch4():
+    obj = {"VISITst20012023_nudg": CH4()}
+    plt_reg(obj, obj)
 
 
 # %%
