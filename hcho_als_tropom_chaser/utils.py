@@ -267,6 +267,7 @@ class HCHO:
         (
             self.glob_ann,
             self.reg_ann,
+            self.reg_ann_summer,
             self.lat_mean,
             self.reg_ss,
         ) = HCHO.cal_glob_reg_hcho(self.hcho, self.weights)
@@ -308,6 +309,8 @@ class HCHO:
         reg_hcho_ann = {r: [] for r in list_srex_regs}
         reg_hcho_ann["year"] = np.unique(ds.time.dt.year.values)
 
+        reg_hcho_ann_summer = copy.deepcopy(reg_hcho_ann)
+
         # seasonal regional hcho
         reg_hcho_ss = {r: [] for r in list_srex_regs}
         reg_hcho_ss["month"] = np.arange(1, 13)
@@ -348,6 +351,10 @@ class HCHO:
                 valid_r = data_r[(data_r != 0) & ~np.isnan(data_r)]
                 reg_hcho_ann[r].append(np.mean(valid_r))
 
+                data_summer = data_r[5:8]  # June, July, August
+                valid_summer = data_summer[(data_summer != 0) & ~np.isnan(data_summer)]
+                reg_hcho_ann_summer[r].append(np.mean(valid_summer))
+
             data_glob = np.array(hcho_glob)
             valid_glob = data_glob[(data_glob != 0) & ~np.isnan(data_glob)]
             glob_hcho_ann["avg_glob_ann"].append(np.mean(valid_glob))
@@ -381,8 +388,12 @@ class HCHO:
                 print(len(reg_hcho_ss[r]), r)
             assert len(reg_hcho_ss[r]) == 12
 
+        print("1", glob_hcho_ann)
         glob_hcho_ann = pd.DataFrame.from_dict(glob_hcho_ann)
+        print("2", reg_hcho_ann)
         reg_hcho_ann = pd.DataFrame.from_dict(reg_hcho_ann)
+        print("reg_hcho_ann_summer", reg_hcho_ann_summer)
+        reg_hcho_ann_summer = pd.DataFrame.from_dict(reg_hcho_ann_summer)
         reg_hcho_ss = pd.DataFrame.from_dict(reg_hcho_ss)
 
         hcho_lat_mean = (
@@ -408,7 +419,13 @@ class HCHO:
         # if not os.path.exists(reg_hcho_ss_path):
         #     reg_hcho_ss.to_csv(reg_hcho_ss_path)
 
-        return glob_hcho_ann, reg_hcho_ann, hcho_lat_mean, reg_hcho_ss
+        return (
+            glob_hcho_ann,
+            reg_hcho_ann,
+            reg_hcho_ann_summer,
+            hcho_lat_mean,
+            reg_hcho_ss,
+        )
 
 
 class HCHO_hoque(HCHO):
@@ -422,6 +439,41 @@ class HCHO_hoque(HCHO):
             self.lat_mean,
             self.reg_ss,
         ) = HCHO.cal_glob_reg_hcho(self.hcho, self.weights)
+
+
+class HCHO_maxdoas:
+    def __init__(self, file_path, max_doas_coords):
+        print(file_path)
+
+        self.max_doas_coords = max_doas_coords
+        self.ds = xr.open_dataset(file_path)
+
+        if "hcho" not in list(self.ds.data_vars):
+            self.ds = self.ds.rename({list(self.ds.data_vars.keys())[0]: "hcho"})
+
+        # self.ds = self.ds.sel(layer=(self.ds.layer.isin(np.arange(5))))
+        print("No. of Layers:", self.ds.layer.shape)
+        self.ds = self.ds.sum("layer")
+
+        self.hcho_at_maxdoas = {}
+        self.extract()
+
+    def extract(self):
+        for station in self.max_doas_coords.keys():
+            lat = self.max_doas_coords[station]["lat"]
+            lon = self.max_doas_coords[station]["lon"]
+
+            # self.hcho_at_maxdoas[station] = self.ds.sel(
+            #     lat=lat, lon=lon, method="nearest"
+            # ).to_dataframe()
+            self.hcho_at_maxdoas[station] = (
+                self.ds.sel(
+                    lat=slice(lat + 2.8, lat - 2.8), lon=slice(lon - 2.8, lon + 2.8)
+                )
+                .to_dataframe()
+                .groupby("time")
+                .mean()
+            )
 
 
 def notused_load_hoque_aked_nc():

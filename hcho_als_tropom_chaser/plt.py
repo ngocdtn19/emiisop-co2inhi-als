@@ -10,11 +10,14 @@ import pymannkendall as pymk
 from sklearn.metrics import mean_squared_error as mse
 from scipy.stats import pearsonr
 from pathlib import Path
+
 from utils import *
+from max_doas import *
 
 # AKED_CHASER_HCHO SETTING
 ORG_CHASER_DIR = "/mnt/dg3/ngoc/CHASER_output"
 AKED_DIR = "/mnt/dg3/ngoc/emiisop_co2inhi_als/data/hcho_sat_ak_applied"
+SAT_DIR = f"/mnt/dg3/ngoc/obs_data"
 
 SAT_NAMES = ["TROPO", "OMI"]
 # CASES = [f.split("/")[-1] for f in glob(f"{ORG_CHASER_DIR}/*2023_*")]
@@ -26,7 +29,7 @@ CASES = [
     "UKst20012023_nudg",
     "MIXpft20012023_nudg",
     "OBS",
-    "BVOCoff20012023_nudg",
+    # "BVOCoff20012023_nudg",
 ]
 
 colors = [
@@ -36,20 +39,24 @@ colors = [
     "#009E73",  # bluish green
     "#F0E442",  # yellow
     "#0072B2",  # blue
-    "#CC79A7",  # reddish purple
-    "#999933",  # olive green
+    # "#CC79A7",  # reddish purple
+    "red",
+    # "#999933",  # olive green
     "#882255",
+    "#AA4499",  # deep magenta
+    "#44AA99",  # teal green
+    "#332288",  # dark navy
 ]
 
 
-def list_all_files(base_dir, sat_ver):
+def list_all_files(base_dir, sat_ver, cases=CASES, config_name="ak_assign"):
     all_files = []
     for root, dirs, files in os.walk(base_dir):
         for file in files:
             file = os.path.join(root, file)
-            for case in CASES:
+            for case in cases:
                 if case in file:
-                    if sat_ver in file and "ak_assign" in file:
+                    if sat_ver in file and config_name in file:
                         all_files.append(file)
     return all_files
 
@@ -57,7 +64,7 @@ def list_all_files(base_dir, sat_ver):
 def load_hcho(sat_name, sat_ver):
 
     # SATELLITE SETTING
-    SAT_DIR = f"/mnt/dg3/ngoc/obs_data"
+
     if sat_ver == "v1":
         time_omi = "20050101-20231201"
         time_tropo = "20180601-20240701"
@@ -71,32 +78,90 @@ def load_hcho(sat_name, sat_ver):
     OMI_FILE = f"{SAT_DIR}/{M_NAME_OMI}/EXTRACT/hcho_AERmon_{M_NAME_OMI}_historical_gn_{time_omi}.nc"
     TROPO_FILE = f"{SAT_DIR}/{M_NAME_TROPO}/EXTRACT/hcho_AERmon_{M_NAME_TROPO}_historical_gn_{time_tropo}.nc"
 
-    base_dir = "/mnt/dg3/ngoc/emiisop_co2inhi_als/data/hcho_sat_ak_applied/"
-    files = list_all_files(base_dir, sat_ver)
+    files = list_all_files(AKED_DIR, sat_ver, config_name="ak_assign")
     print(files)
 
     obs = HCHO(TROPO_FILE) if sat_name == "tropo" else HCHO(OMI_FILE)
 
     ak_files = [f for f in files if sat_name in f]
     interp_files = [f for f in ak_files if "/sat_interp/" in f]
-    nointerp_files = [f for f in ak_files if "/no_sat_interp/" in f]
 
     hcho_interp = {Path(f).parents[1].name: HCHO(f) for f in interp_files}
-    hcho_nointerp = {Path(f).parents[1].name: HCHO(f) for f in nointerp_files}
     hcho_interp["OBS"] = obs
-    hcho_nointerp["OBS"] = obs
 
-    return hcho_interp, hcho_nointerp
+    return hcho_interp
 
 
-# interp_omi_v1, nointerp_omi_v1 = load_hcho("omi", "v1")
-# interp_omi_v2, nointerp_omi_v2 = load_hcho("omi", "v2")
-# interp_tropo_v1, nointerp_tropo_v1 = load_hcho("tropo", "v1")
-# interp_tropo_v2, nointerp_tropo_v2 = load_hcho("tropo", "v2")
+def load_hcho_maxdoas(sat_name):
+
+    files = list_all_files(AKED_DIR, "v2", config_name="maxdoas")
+    files_by_sat = [f for f in files if sat_name in f]
+    hcho = {
+        Path(f).parents[1].name: HCHO_maxdoas(f, MAX_DOAS_COORDS).hcho_at_maxdoas
+        for f in files_by_sat
+    }
+    # hcho[sat_name] = obs
+    hcho["MAX_DOAS"] = read_all_maxdoas_csv()
+
+    return hcho
+
+
+# interp_omi_v1 = load_hcho("omi", "v1")
+# interp_omi_v2 = load_hcho("omi", "v2")
+# interp_tropo_v1 = load_hcho("tropo", "v1")
+# interp_tropo_v2 = load_hcho("tropo", "v2")
 
 
 # %%
-def plt_reg(hcho_interp, hcho_nointerp, norm=True, tits=None, unit=None):
+def plt_maxdoas(sat_name="omi", norm=True, summer_only=False):
+    hcho = load_hcho_maxdoas(sat_name)
+
+    f_annual, ax_annual = plt.subplots(3, 1, figsize=(6, 12), layout="constrained")
+    f_ss, ax_ss = plt.subplots(3, 1, figsize=(6, 8), layout="constrained")
+
+    for i, c in enumerate(hcho.keys()):
+        df_case = hcho[c]
+
+        for j, station in enumerate(MAX_DOAS_COORDS.keys()):
+            df_station = df_case[station]
+            df_ss = df_station.groupby(df_station.index.month).mean()
+            df_annual = df_station.groupby(df_station.index.year).mean()
+            if summer_only:
+                df_annual = df_station[df_station.index.month.isin([6, 7, 8])]
+                df_annual = df_annual.groupby(df_annual.index.year).mean()
+
+            ss_hcho = df_ss.hcho
+            ann_hcho = df_annual.hcho
+            if norm:
+                ss_hcho = min_max_normalize(ss_hcho)
+                ann_hcho = min_max_normalize(ann_hcho)
+
+            ax_ss[j].plot(
+                df_ss.index, ss_hcho, label=f"{c}", color=colors[i], marker="o"
+            )
+            ax_ss[j].set_title(f"{station} - (Monthly Mean)")
+
+            ax_annual[j].plot(
+                df_annual.index, ann_hcho, label=f"{c}", color=colors[i], marker="o"
+            )
+            ax_annual[j].set_title(f"{station} - (Annual Mean)")
+
+            ax_annual[j].set_xlim(2012, 2020)
+
+    for fig in [f_ss, f_annual]:
+        handles, labels = ax_annual[0].get_legend_handles_labels()
+
+        fig.legend(
+            handles,
+            labels,
+            loc="lower center",
+            ncol=3,
+            bbox_to_anchor=(0.5, -0.1),
+            frameon=False,
+        )
+
+
+def plt_reg(hcho, norm=True, unit=None, summer_only=True):
 
     list_regions = [
         "AMZ",
@@ -114,18 +179,7 @@ def plt_reg(hcho_interp, hcho_nointerp, norm=True, tits=None, unit=None):
         "S_Africa",
         # "REMOTE_PACIFIC",
     ]
-    if tits is None:
-        tits = ["Temp/HCHO Interpolated by Satellite Pressure", "No Interpolation"]
 
-    # interested_case = list(hcho_interp.keys())[::-1]
-    # interested_case = [
-    #     "OBS",
-    #     # "VISIT20172023_no_nudg",
-    #     "VISITst20012023_nudg",
-    #     "XhalfVISITst20012023",
-    #     "XhalfUKpft20012023",
-    # ]
-    # interested_case = list(hcho_interp.keys())
     interested_case = CASES
 
     ylim_dict = {
@@ -147,52 +201,54 @@ def plt_reg(hcho_interp, hcho_nointerp, norm=True, tits=None, unit=None):
 
     for mode in ["ss", "ann"]:
         index = "month" if mode == "ss" else "year"
-        for k, hcho in enumerate([hcho_interp, hcho_nointerp]):
-            fig, axis = plt.subplots(3, 3, figsize=(3 * 3, 3 * 3), layout="constrained")
 
-            for i, r in enumerate(list_regions):
-                ri, ci = i // 3, i % 3
-                ax = axis[ri, ci]
-                # for j, c in enumerate(list(hcho_interp.keys())[::-1]):
-                for j, c in enumerate(interested_case):
-                    ds = hcho[c].reg_ss if mode == "ss" else hcho[c].reg_ann
-                    reg_df = ds[[index, r]].set_index(index).rename(columns={r: c})
-                    if norm:
-                        reg_df[c] = min_max_normalize(reg_df[c])
-                    sns.lineplot(
-                        reg_df,
-                        ax=ax,
-                        palette=[colors[j]],
-                        markers=True,
-                        lw=2,
-                    )
-                # Set y-axis limit
-                # if r in ylim_dict:
-                #     ax.set_ylim(ylim_dict[r])
+        fig, axis = plt.subplots(3, 3, figsize=(3 * 3, 3 * 3), layout="constrained")
 
-                handles, labels = ax.get_legend_handles_labels()
-                ax.get_legend().remove()
-                ax.set_xlabel("Year")
-                if mode == "ss":
-                    ax.set_xlabel("Month")
-                    ax.set_xticks(np.arange(1, 13))
-                if ri < 2:
-                    ax.set_xlabel("")
+        for i, r in enumerate(list_regions):
+            ri, ci = i // 3, i % 3
+            ax = axis[ri, ci]
+            for j, c in enumerate(interested_case):
+                ds = hcho[c].reg_ss
+                if mode == "ann":
+                    ds = hcho[c].reg_ann
+                    if summer_only:
+                        ds = hcho[c].reg_ann_summer
+                reg_df = ds[[index, r]].set_index(index).rename(columns={r: c})
+                if norm:
+                    reg_df[c] = min_max_normalize(reg_df[c])
+                sns.lineplot(
+                    reg_df,
+                    ax=ax,
+                    palette=[colors[j]],
+                    markers=True,
+                    lw=2,
+                )
+            # Set y-axis limit
+            # if r in ylim_dict:
+            #     ax.set_ylim(ylim_dict[r])
 
-                if unit is None:
-                    unit = "(\u00d710$^{15}$ molec.cm$^{-2}$)"
-                ax.set_ylabel(unit)
+            handles, labels = ax.get_legend_handles_labels()
+            ax.get_legend().remove()
+            ax.set_xlabel("Year")
+            if mode == "ss":
+                ax.set_xlabel("Month")
+                ax.set_xticks(np.arange(1, 13))
+            if ri < 2:
+                ax.set_xlabel("")
 
-                ax.set_title(f"{r}")
+            if unit is None:
+                unit = "(\u00d710$^{15}$ molec.cm$^{-2}$)"
+            ax.set_ylabel(unit)
 
-            fig.legend(
-                handles,
-                labels,
-                ncol=4,
-                loc="center",
-                bbox_to_anchor=(0.5, -0.06),
-            )
-            plt.suptitle(tits[k], fontsize=16, fontweight="bold")
+            ax.set_title(f"{r}")
+
+        fig.legend(
+            handles,
+            labels,
+            ncol=4,
+            loc="center",
+            bbox_to_anchor=(0.5, -0.06),
+        )
 
 
 def plt_metric_reg(hcho_dict):

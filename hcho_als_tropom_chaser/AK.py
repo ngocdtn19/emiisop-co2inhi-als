@@ -18,7 +18,6 @@ geogrid = pygtool.readgrid()
 Clon, Clat = geogrid.getlonlat()
 BASE_DIR = "/mnt/dg3/ngoc/CHASER_output"
 CASES = [f.split("/")[-1] for f in glob(f"{BASE_DIR}/*20012023_nudg")]
-# CASES = ["VISITst20012023_nudg"]
 SIGMA = load_sigma()
 
 # step 1
@@ -95,18 +94,9 @@ def sampling_12to14h(years=np.arange(2005, 2024), cases=CASES):
                 # print(sampled_ds.time.values)
 
             concat_ds = xr.concat(list_ds, dim="time")
-            # concat_ds["time"] = np.array(
-            #     concat_ds.time.values, dtype="datetime64[D]"
-            # )
 
             concat_ds.to_netcdf(out_file)
             print(case, var)
-            # concat_ds.to_netcdf(
-            #     out_file,
-            #     encoding={
-            #         "time": {"dtype": "int64", "units": "hours since 1970-01-01"}
-            #     },
-            # )
 
 
 def get_chaser_data(case):
@@ -157,7 +147,6 @@ def extract_layer_sat_ps(ds):
     border_ps_layers = []
 
     nlayers = len(sigma_a)
-    # print(nlayers)
 
     # center_ps_layers.append(surf_p)
     border_ps_layers.append(surf_p)
@@ -338,7 +327,7 @@ def ak_apply(p, p_next, t, t_next, ak, hcho):
     return ((hcho * 1e-9 * H * p * 100 * 1e-4) / (1.38e-23 * t)) * ak
 
 
-def ak_apply_chaser(sat_ds, chaser_ds, interp_to):
+def ak_apply_chaser(sat_ds, chaser_ds, interp_to, compare_maxdoas=False):
     # S1: Matching time between CHASER and SATELLITE
     chaser_filtered = chaser_ds.sel(time=(chaser_ds.time.isin(sat_ds.time.values)))
     sat_filtered = sat_ds.sel(time=(sat_ds.time.isin(chaser_filtered.time.values)))
@@ -369,12 +358,15 @@ def ak_apply_chaser(sat_ds, chaser_ds, interp_to):
     hcho_layers = []
     # no_layers = 36 if used_ak.shape[-1] > 36 else used_ak.shape[-1]
     no_layers = 16
+    # if compare_maxdoas:
+    #     no_layers = 10
+
+    print("No. layers: ", no_layers)
     for l in range(no_layers - 1):
         p = sat_ps_val[:, :, :, l]
         p_next = sat_ps_val[:, :, :, l + 1]
         # sattelite pressure
         if interp_to == "sat":
-            # l_ps = l + 1
             p = sat_ps_val[:, :, :, l]
             p_next = sat_ps_val[:, :, :, l + 1]
 
@@ -383,13 +375,11 @@ def ak_apply_chaser(sat_ds, chaser_ds, interp_to):
             p_next = c_ps[:, :, :, l + 1]
 
         ak = used_ak[:, :, :, l]
-
         t = c_temp[:, :, :, l]
         t_next = c_temp[:, :, :, l + 1]
         hcho = c_ch2o[:, :, :, l]
 
         ak_hcho = ak_apply(p, p_next, t, t_next, ak, hcho)
-
         hcho_layers.append(ak_hcho)
 
     # assert len(hcho_layers) == no_layers - 1
@@ -410,14 +400,15 @@ def ak_apply_chaser(sat_ds, chaser_ds, interp_to):
         },
     )
 
-    hcho_ds = hcho_ds["hcho"].sum("layer", skipna=True)
-    print("masking")
-    hcho_ds_filter = mask_chaser_by_sat_hcho(hcho_ds, sat_filtered)
+    # hcho_ds = hcho_ds["hcho"].sum("layer", skipna=True)
+    # print("masking")
+    # hcho_ds_filter = mask_chaser_by_sat_hcho(hcho_ds, sat_filtered)
 
-    return hcho_ds_filter
+    # return hcho_ds_filter
+    return hcho_ds
 
 
-def ak_apply_to_chaser_do(sat_version="v1"):
+def ak_apply_to_chaser_do(sat_version="v2", compare_maxdoas=True, sat_interp="assign"):
 
     sat_dir = f"/mnt/dg3/ngoc/obs_data"
     if sat_version == "v1":
@@ -426,6 +417,10 @@ def ak_apply_to_chaser_do(sat_version="v1"):
     else:
         time_omi = "20050101-20221231"
         time_tropo = "20180507-20231231"
+
+    doas_prefix = ""
+    if compare_maxdoas:
+        doas_prefix = "_maxdoas"
 
     m_name_omi = f"mon_BIRA_OMI_HCHO_L3_{sat_version}"
     m_name_tropo = f"mon_TROPOMI_HCHO_L3_{sat_version}"
@@ -438,30 +433,31 @@ def ak_apply_to_chaser_do(sat_version="v1"):
     ds_omi = extract_layer_sat_ps(xr.open_dataset(omi_file))
     ds_tropo = extract_layer_sat_ps(xr.open_dataset(tropo_file))
 
-    for sat_interp in ["assign"]:
-        for case in CASES:
+    for case in CASES:
 
-            chaser_ds = get_chaser_data(case)
+        chaser_ds = get_chaser_data(case)
 
-            ch2o_tropo_aked = ak_apply_chaser(ds_tropo, chaser_ds, sat_interp)
-            ch2o_omi_aked = ak_apply_chaser(ds_omi, chaser_ds, sat_interp)
+        ch2o_tropo_aked = ak_apply_chaser(
+            ds_tropo, chaser_ds, sat_interp, compare_maxdoas
+        )
+        ch2o_omi_aked = ak_apply_chaser(ds_omi, chaser_ds, sat_interp, compare_maxdoas)
 
-            interp_folder = "no_sat_interp"
-            if sat_interp:
-                interp_folder = "sat_interp"
+        interp_folder = "no_sat_interp"
+        if sat_interp:
+            interp_folder = "sat_interp"
 
-            out_dir_case = f"{out_dir}/{case}/{interp_folder}"
-            if not os.path.exists(out_dir_case):
-                os.makedirs(out_dir_case)
+        out_dir_case = f"{out_dir}/{case}/{interp_folder}"
+        if not os.path.exists(out_dir_case):
+            os.makedirs(out_dir_case)
 
-            print(case, interp_folder)
+        print(case, interp_folder)
 
-            ch2o_tropo_aked.to_netcdf(
-                f"{out_dir_case}/tropo_ak_hcho_{sat_version}_ak_assign.nc"
-            )
-            ch2o_omi_aked.to_netcdf(
-                f"{out_dir_case}/omi_ak_hcho_{sat_version}_ak_assign.nc"
-            )
+        ch2o_tropo_aked.to_netcdf(
+            f"{out_dir_case}/tropo_ak_hcho_{sat_version}_ak_assign{doas_prefix}.nc"
+        )
+        ch2o_omi_aked.to_netcdf(
+            f"{out_dir_case}/omi_ak_hcho_{sat_version}_ak_assign{doas_prefix}.nc"
+        )
 
 
 def clean_before_ak(keywords, base_dir=None):
