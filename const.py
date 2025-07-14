@@ -34,21 +34,37 @@ REGION = regionmask.defined_regions.srex
 # LIST_REGION = [REGION.regions[i].abbrev for i in REGION.regions.keys()]
 
 LIST_SREX_REGION = [
-    "AMZ",
-    "ENA",
+    # "AMZ",
+    # "ENA",
     #    "SAF",
     #    "MED",
     #    "CEU",
-    "EAS",
+    # "EAS",
     #    "SAS",
-    "SEA",
+    # "SEA",
     "NAU",
 ]
 
 hoque_reg_coords = {
+    "Amazonia": {
+        "lat": [5, -20],  # 5°N to 20°S
+        "lon": [-75, -40],  # 40-75°W
+    },
+    "S-E US": {
+        "lat": [36, 30],  # 30-36°N
+        "lon": [-95, -78],  # 75-100°W
+    },
+    "Mato Grosso": {
+        "lat": [-10, -16],  # 10°S to 16°S
+        "lon": [-60, -50],  # 60°W to 50°W
+    },
     "Indonesia": {
         "lat": [6, -10],  # 6°N to 10°S (descending]
         "lon": [95, 142],  # 95°E to 142°E
+    },
+    "South China": {
+        "lat": [28, 22],  # 28°N to 22°N
+        "lon": [100, 112],  # 100°E to 112°E
     },
     "C_Africa": {
         "lat": [5, -4],  # 5°N to 4°S
@@ -65,7 +81,7 @@ hoque_reg_coords = {
 }
 
 HOQUE_REGIONS = list(hoque_reg_coords.keys())
-LIST_REGION = LIST_SREX_REGION + HOQUE_REGIONS
+LIST_REGION = HOQUE_REGIONS + LIST_SREX_REGION
 
 LIST_COLOR = [
     "#ff5005",

@@ -14,8 +14,10 @@ import copy
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 
+from scipy.stats import pearsonr
 from datetime import datetime
 from mypath import *
+from pathlib import Path
 
 
 geogrid = pygtool.readgrid()
@@ -86,6 +88,8 @@ def prep_hcho_tropomi(chaser_lat=chaser_lat, chaser_lon=chaser_lon):
 
 def mask_chaser_by_sat_hcho(chaser_ds, sat_ds, var_name="tcolhcho"):
 
+    sat_ds = sat_ds.sel(time=(sat_ds.time.isin(chaser_ds.time.values)))
+
     if var_name not in sat_ds:
         raise ValueError(f"Variable '{var_name}' not found in sat_ds.")
 
@@ -104,7 +108,7 @@ def mask_chaser_by_sat_hcho(chaser_ds, sat_ds, var_name="tcolhcho"):
 def cal_mk_map(ds, product_name):
     file_mk_org = os.path.join("./plt_data/mk", f"{product_name}.nc")
     if not os.path.exists(file_mk_org):
-        ds = ds.groupby(ds.time.dt.year).mean(skipna=True)
+
         y = xr.DataArray(
             np.arange(len(ds["year"])) + 1,
             dims="year",
@@ -118,25 +122,40 @@ def cal_mk_map(ds, product_name):
     return slope
 
 
-def map_corr_by_time(ds1, ds2, mode, start_date=None, end_date=None):
-    if len(ds1.lat) != len(ds2.lat):
-        ds1 = ds2.interp(lat=ds2.lat, lon=ds2.lon, method="nearest")
+def compute_rmse(ds1, ds2):
 
-    if start_date and end_date:
-        ds1 = ds1.sel(time=slice(start_date, end_date))
-        ds2 = ds2.sel(time=slice(start_date, end_date))
+    squared_diff = (ds1 - ds2) ** 2
+    mean_squared_error = squared_diff.mean(dim="year", skipna=True)
+    rmse = np.sqrt(mean_squared_error)
 
-    if mode == "ss":
-        ds1_ss = ds1.groupby(ds1.time.dt.month).mean(skipna=True)
-        ds2_ss = ds2.groupby(ds2.time.dt.month).mean(skipna=True)
-        dim = "month"
-    else:
-        ds1_ss = ds1.groupby(ds1.time.dt.year).mean(skipna=True)
-        ds2_ss = ds2.groupby(ds2.time.dt.year).mean(skipna=True)
-        dim = "year"
+    mean_ref = ds2.mean(dim="year", skipna=True)
+    rmse_percent = (rmse / mean_ref) * 100
+    return rmse_percent
 
-    c = xr.corr(ds1_ss, ds2_ss, dim=dim)
-    return c
+
+def map_corr_by_time(model_ds, sat_ds):
+    def corr_and_p(x, y):
+        mask = np.isfinite(x) & np.isfinite(y)
+        if np.sum(mask) < 3:
+            return np.nan, np.nan
+        r, p = pearsonr(x[mask], y[mask])
+        return r, p
+
+    sat_ds = sat_ds.sel(year=(sat_ds.year.isin(model_ds.year.values)))
+    corr, pval = xr.apply_ufunc(
+        corr_and_p,
+        model_ds,
+        sat_ds,
+        input_core_dims=[["year"], ["year"]],
+        output_core_dims=[[], []],
+        vectorize=True,
+        dask="parallelized",
+        output_dtypes=[float, float],
+    )
+
+    significant = pval < 0.05
+
+    return corr, significant
 
 
 def create_visit_mask():
@@ -222,19 +241,115 @@ def check_ak_by_plt(model_ak, sat_ak, model_pressure, sat_pressure):
     plt.show()
 
 
+def get_sat_file(sat_name, sat_ver="v2"):
+    sat_dir = f"/mnt/dg3/ngoc/obs_data"
+
+    if sat_ver == "v1":
+        time_omi = "20050101-20231201"
+        time_tropo = "20180601-20240701"
+    else:
+        time_omi = "20050101-20221231"
+        time_tropo = "20180507-20231231"
+
+    m_name_omi = f"mon_BIRA_OMI_HCHO_L3_{sat_ver}"
+    m_name_tropo = f"mon_TROPOMI_HCHO_L3_{sat_ver}"
+
+    time = time_omi
+    m_name = m_name_omi
+    if sat_name == "tropo":
+        time = time_tropo
+        m_name = m_name_tropo
+
+    return f"{sat_dir}/{m_name}/EXTRACT/hcho_AERmon_{m_name}_historical_gn_{time}.nc"
+
+
+def cal_ss_by_lat(ds):
+    ds = ds[["hcho"]]
+
+    min_y = ds["time"].dt.year.min().item()
+    max_y = ds["time"].dt.year.max().item()
+    if len(ds.sel(time=ds["time"].dt.year == min_y)) < 12:
+        # If the first year has less than 12 months, we assume it is incomplete
+        min_y += 1
+
+    valid_years = np.arange(min_y, max_y + 1)
+    print(f"Valid years for ss mean by lat: {valid_years}")
+    # Create masks
+    lat = ds["lat"]
+    mask_north = lat > 0
+    mask_tropics = (lat <= 0) & (lat >= -30)
+    mask_south = lat < -30
+
+    # Define month ranges
+    months_north = [6, 7, 8]  # JJA
+    months_tropics = [2, 3, 4]  # FMA
+    months_south = [12, 1, 2]  # DJF
+
+    # North: JJA
+    ds_north = ds.sel(time=ds["time"].dt.month.isin(months_north))
+    north_mean = (
+        ds_north.where(mask_north, drop=True).groupby("time.year").mean(dim="time")
+    )
+    north_mean = north_mean.sel(year=north_mean.year.isin(valid_years))
+
+    # Tropics: FMA
+    ds_tropics = ds.sel(time=ds["time"].dt.month.isin(months_tropics))
+    tropics_mean = (
+        ds_tropics.where(mask_tropics, drop=True).groupby("time.year").mean(dim="time")
+    )
+    tropics_mean = tropics_mean.sel(year=tropics_mean.year.isin(valid_years))
+
+    # South: DJF (requires shifting across years)
+    ds_south = ds.sel(time=ds["time"].dt.month.isin(months_south))
+    year_adj = ds_south["time"].dt.year.where(
+        ds_south["time"].dt.month != 12, ds_south["time"].dt.year + 1
+    )
+    ds_south = ds_south.assign_coords(season_year=year_adj)
+    south_mean = (
+        ds_south.where(mask_south, drop=True).groupby("season_year").mean(dim="time")
+    )
+    south_mean = south_mean.rename({"season_year": "year"})
+    south_mean = south_mean.sel(year=south_mean.year.isin(valid_years))
+
+    # Combine the three means using where mask
+    combined = xr.combine_by_coords([north_mean, tropics_mean, south_mean])
+
+    # Final mean with lat-dependent seasonality
+    return combined
+
+
 class HCHO:
-    hoque_reg_coords = {
-        "REMOTE_PACIFIC": {
-            "lat": [32, -28],  # 32°N to 28°S
-            "lon": [-177, -117],  # -177° to -117°
+    regs = {
+        # "REMOTE_PACIFIC": {
+        #     "lat": [32, -28],  # 32°N to 28°S
+        #     "lon": [-177, -117],  # -177° to -117°
+        # },
+        # Muller et al. (2024) regions (Amazonia, S-E US)
+        # Opacka et al. (2021) regions (Indonesia, Mato Grosso, South China)
+        # Hoque et al. (2024) regions (C_Africa, N_Africa, S_Africa)
+        "Amazonia": {
+            "lat": [5, -20],  # 5°N to 20°S
+            "lon": [-75, -40],  # 40-75°W
+        },
+        "S-E US": {
+            "lat": [36, 30],  # 30-36°N
+            "lon": [-95, -78],  # 75-100°W
+        },
+        "Mato Grosso": {
+            "lat": [-10, -16],  # 10°S to 16°S
+            "lon": [-60, -50],  # 60°W to 50°W
         },
         "Indonesia": {
-            "lat": [6, -10],  # 6°N to 10°S (descending]
-            "lon": [95, 142],  # 95°E to 142°E
+            "lat": [6, -6],  # 6°N to 6°S (descending]
+            "lon": [95, 112],  # 95°E to 112°E
+        },
+        "South China": {
+            "lat": [28, 22],  # 28°N to 22°N
+            "lon": [100, 112],  # 100°E to 112°E
         },
         "C_Africa": {
-            "lat": [5, -4],  # 5°N to 4°S
-            "lon": [10, 40],  # 10°E to 40°E
+            "lat": [6, -6],  # 6°N to 6°S
+            "lon": [10, 35],  # 10°E to 35°E
         },
         "N_Africa": {
             "lat": [15, 5],  # 15°N to 5°N
@@ -246,33 +361,51 @@ class HCHO:
         },
     }
 
-    def __init__(self, file_path, hcho_var="tcolhcho"):
-        # self.ds = xr.open_dataset(file_path).fillna(0)
+    def __init__(self, file_path, hcho_var="tcolhcho", layer_used=14, sat_filter=None):
+
         if isinstance(file_path, str):
             self.ds = xr.open_dataset(file_path)
         else:
             self.ds = prep_org_hcho_chaser(file_path)
+
         if hcho_var in list(self.ds.data_vars):
             self.ds = self.ds.rename({hcho_var: "hcho"})
         if "hcho" not in list(self.ds.data_vars):
             self.ds = self.ds.rename({list(self.ds.data_vars.keys())[0]: "hcho"})
 
+        if sat_filter is not None:
+            # Calculate the total column HCHO
+            self.ds = self.ds.sel(layer=(self.ds.layer.isin(np.arange(layer_used))))
+            print("No. of Layers:", self.ds.layer.shape)
+            self.ds = self.ds.sum("layer")
+
+            # filtering by satellite valid pixels
+            print("Filtering by satellite valid pixels")
+            sat_ds = xr.open_dataset(get_sat_file(sat_filter))
+            self.ds["hcho"] = mask_chaser_by_sat_hcho(self.ds["hcho"], sat_ds)
+
         self.ds = self.ds.fillna(0)
         self.hcho = self.ds["hcho"] * 1e-15
         self.hcho = self.hcho.sel(time=(self.hcho.time.dt.year < 2024))
 
+        self.ds_ss_by_lat = cal_ss_by_lat(self.ds)
+        self.hcho_sslat = self.ds_ss_by_lat.hcho * 1e-15
+
         self.mask_land()
-
         self.cal_weights()
-        (
-            self.glob_ann,
-            self.reg_ann,
-            self.reg_ann_summer,
-            self.lat_mean,
-            self.reg_ss,
-        ) = HCHO.cal_glob_reg_hcho(self.hcho, self.weights)
 
-        # self.chaser_hcho_map_mk = cal_mk_map(self.chaser_hcho, "chaser_hcho")
+        (_, self.reg_ann, self.reg_ss, _) = HCHO.ann_ss_reg(self.hcho, self.weights)
+        self.reg_ann_sslat = HCHO.ann_ss_reg(self.hcho_sslat, self.weights, sslat=True)
+
+        # MK trend
+        c = Path(file_path).parents[1].name
+        if sat_filter is not None:
+            c = f"{c}_{sat_filter}"
+        print(f"Calculating MK trend for {c}...")
+        self.hcho_ann_mk = cal_mk_map(
+            self.hcho.groupby(self.hcho.time.dt.year).mean("time", skipna=True), c
+        )
+        self.hcho_ann_sslat_mk = cal_mk_map(self.hcho_sslat, f"{c}_sslat")
 
         # self.tropmomi_inhi_chaser_ss_corr = map_corr_by_time(
         #     self.inhi_chaser_hcho, self.tropomi_hcho, "tropo_chaser", mode="ss"
@@ -285,8 +418,8 @@ class HCHO:
         visit_mask = xr.open_dataset("./visit_land_mask/mask.nc")
         # mask = xr.where(~visit_mask["mask"].isnull(), 1.0, np.nan)
         mask = visit_mask.mask.values
-
         self.hcho = self.hcho * mask
+        self.hcho_sslat = self.hcho_sslat * mask
 
     def cal_weights(self):
         ds = self.ds.isel(time=0)
@@ -295,154 +428,110 @@ class HCHO:
         self.weights.name = "weights"
 
     @staticmethod
-    def cal_glob_reg_hcho(ds, weights):
+    def ann_ss_reg(ds, ws, sslat=False):
 
-        hoque_regions = list(HCHO.hoque_reg_coords.keys())
-        list_srex_regs = regionmask.defined_regions.srex.abbrevs + hoque_regions
-        mask_3D = regionmask.defined_regions.srex.mask_3D(ds.isel(time=0))
+        hoque_regions = list(HCHO.regs.keys())
+        list_regs = regionmask.defined_regions.srex.abbrevs + hoque_regions
+        lls = ["lat", "lon"]
 
-        # annual global hcho
-        glob_hcho_ann = {"year": np.unique(ds.time.dt.year.values)}
-        glob_hcho_ann["avg_glob_ann"] = []
+        if sslat:
+            mask_3D = regionmask.defined_regions.srex.mask_3D(ds.isel(year=0))
+            reg_ann = {**{r: [] for r in list_regs}, "year": ds.year.values}
 
-        # annual regional hcho
-        reg_hcho_ann = {r: [] for r in list_srex_regs}
-        reg_hcho_ann["year"] = np.unique(ds.time.dt.year.values)
+            for r in list_regs:
+                if r not in hoque_regions:
+                    mask_r = mask_3D.isel(region=(mask_3D.abbrevs == r))
+                    region_ds = ds.weighted(mask_r * ws).mean(lls)
+                else:
+                    lat, lon = HCHO.regs[r]["lat"], HCHO.regs[r]["lon"]
+                    region_ds = ds.sel(lat=slice(*lat), lon=slice(*lon)).mean(lls)
+                reg_ann[r] = (
+                    region_ds.groupby(region_ds.year)
+                    .mean(..., skipna=True)
+                    .to_dataframe()["hcho"]
+                    .values
+                )
+            return pd.DataFrame.from_dict(reg_ann)
+        else:
+            mask_3D = regionmask.defined_regions.srex.mask_3D(ds.isel(time=0))
+            years = np.unique(ds.time.dt.year.values)
 
-        reg_hcho_ann_summer = copy.deepcopy(reg_hcho_ann)
+            glob_hcho_ann = {"year": years, "avg_glob_ann": []}
+            reg_hcho_ann = {**{r: [] for r in list_regs}, "year": years}
+            reg_hcho_ss = {**{r: [] for r in list_regs}, "month": np.arange(1, 13)}
 
-        # seasonal regional hcho
-        reg_hcho_ss = {r: [] for r in list_srex_regs}
-        reg_hcho_ss["month"] = np.arange(1, 13)
+            # cal annual hcho for glob and reg
+            for y in glob_hcho_ann["year"]:
+                ds_y = ds.sel(time=(ds.time.dt.year == y))
+                hcho_reg = {r: [] for r in list_regs}
+                hcho_glob = []
 
-        # cal annual hcho for glob and reg
-        for y in glob_hcho_ann["year"]:
-            ds_y = ds.sel(time=(ds.time.dt.year == y))
-            hcho_reg = {r: [] for r in list_srex_regs}
-            hcho_glob = []
-
-            for m in range(1, 13):
-                ds_month = ds_y.sel(time=(ds_y.time.dt.month == m))
-                # cal global hcho
-                hcho_m_w = ds_month.weighted(weights).mean(skipna=True).item()
-                hcho_glob.append(hcho_m_w)
-                # cal regional hcho
-                for r in list_srex_regs:
-                    if r not in hoque_regions:
-                        mask_r = mask_3D.isel(region=(mask_3D.abbrevs == r))
-                        hcho_m_w_r = (
-                            ds_month.weighted(mask_r * weights).mean(skipna=True).item()
-                        )
-                    else:
-                        lat = HCHO.hoque_reg_coords[r]["lat"]
-                        lon = HCHO.hoque_reg_coords[r]["lon"]
-                        hcho_m_w_r = (
-                            ds_month.sel(
-                                lat=slice(lat[0], lat[1]),
-                                lon=slice(lon[0], lon[1]),
+                for m in range(1, 13):
+                    ds_month = ds_y.sel(time=(ds_y.time.dt.month == m))
+                    # cal global hcho
+                    hcho_m_w = ds_month.weighted(ws).mean(skipna=True).item()
+                    hcho_glob.append(hcho_m_w)
+                    # cal regional hcho
+                    for r in list_regs:
+                        if r not in hoque_regions:
+                            mask_r = mask_3D.isel(region=(mask_3D.abbrevs == r))
+                            hcho_m_w_r = (
+                                ds_month.weighted(mask_r * ws).mean(skipna=True).item()
                             )
-                            .mean(skipna=True)
-                            .item()
-                        )
-                    hcho_reg[r].append(hcho_m_w_r)
+                        else:
+                            lat, lon = (
+                                HCHO.regs[r]["lat"],
+                                HCHO.regs[r]["lon"],
+                            )
+                            hcho_m_w_r = (
+                                ds_month.sel(lat=slice(*lat), lon=slice(*lon))
+                                .mean(skipna=True)
+                                .item()
+                            )
+                        hcho_reg[r].append(hcho_m_w_r)
 
-            for r in list_srex_regs:
-                data_r = np.array(hcho_reg[r])
-                valid_r = data_r[(data_r != 0) & ~np.isnan(data_r)]
-                reg_hcho_ann[r].append(np.mean(valid_r))
+                for r in list_regs:
+                    data_r = np.array(hcho_reg[r])
+                    valid_r = data_r[(data_r != 0) & ~np.isnan(data_r)]
+                    reg_hcho_ann[r].append(np.mean(valid_r))
 
-                data_summer = data_r[5:8]  # June, July, August
-                valid_summer = data_summer[(data_summer != 0) & ~np.isnan(data_summer)]
-                reg_hcho_ann_summer[r].append(np.mean(valid_summer))
+                data_glob = np.array(hcho_glob)
+                valid_glob = data_glob[(data_glob != 0) & ~np.isnan(data_glob)]
+                glob_hcho_ann["avg_glob_ann"].append(np.mean(valid_glob))
 
-            data_glob = np.array(hcho_glob)
-            valid_glob = data_glob[(data_glob != 0) & ~np.isnan(data_glob)]
-            glob_hcho_ann["avg_glob_ann"].append(np.mean(valid_glob))
-
-        # cal reg hcho for reg
-        for r in list_srex_regs:
-            if r not in hoque_regions:
-                mask_r = mask_3D.isel(region=(mask_3D.abbrevs == r))
+            # cal ss hcho for reg
+            for r in list_regs:
+                if r not in hoque_regions:
+                    mask_r = mask_3D.isel(region=(mask_3D.abbrevs == r))
+                    region_ds = ds.weighted(mask_r * ws).mean(lls)
+                else:
+                    lat, lon = HCHO.regs[r]["lat"], HCHO.regs[r]["lon"]
+                    region_ds = ds.sel(lat=slice(*lat), lon=slice(*lon)).mean(lls)
                 reg_hcho_ss[r] = (
-                    ds.weighted(mask_r * weights)
-                    .mean(["lat", "lon"])
-                    .groupby(ds.time.dt.month)
-                    .mean(skipna=True)
+                    region_ds.groupby(ds.time.dt.month)
+                    .mean(..., skipna=True)
                     .to_dataframe()["hcho"]
                     .values
                 )
-            else:
-                lat = HCHO.hoque_reg_coords[r]["lat"]
-                lon = HCHO.hoque_reg_coords[r]["lon"]
-                reg_hcho_ss[r] = (
-                    ds.sel(
-                        lat=slice(lat[0], lat[1]),
-                        lon=slice(lon[0], lon[1]),
-                    )
-                    .mean(["lat", "lon"])
-                    .groupby(ds.time.dt.month)
-                    .mean(skipna=True)
-                    .to_dataframe()["hcho"]
-                    .values
-                )
-                print(len(reg_hcho_ss[r]), r)
-            assert len(reg_hcho_ss[r]) == 12
 
-        print("1", glob_hcho_ann)
-        glob_hcho_ann = pd.DataFrame.from_dict(glob_hcho_ann)
-        print("2", reg_hcho_ann)
-        reg_hcho_ann = pd.DataFrame.from_dict(reg_hcho_ann)
-        print("reg_hcho_ann_summer", reg_hcho_ann_summer)
-        reg_hcho_ann_summer = pd.DataFrame.from_dict(reg_hcho_ann_summer)
-        reg_hcho_ss = pd.DataFrame.from_dict(reg_hcho_ss)
+            glob_hcho_ann = pd.DataFrame.from_dict(glob_hcho_ann)
+            reg_hcho_ann = pd.DataFrame.from_dict(reg_hcho_ann)
+            reg_hcho_ss = pd.DataFrame.from_dict(reg_hcho_ss)
 
-        hcho_lat_mean = (
-            ds.mean("time")
-            .weighted(weights)
-            .mean("lon")
-            .to_dataframe()
-            .reset_index()
-            .drop("time", axis=1)
-        )
+            hcho_lat_mean = (
+                ds.mean("time")
+                .weighted(ws)
+                .mean("lon")
+                .to_dataframe()
+                .reset_index()
+                .drop("time", axis=1)
+            )
 
-        # glob_hcho_ann_path = f"./plt_data/glob_hcho_ann/{product_name}.csv"
-        # reg_hcho_ann_path = f"./plt_data/reg_hcho_ann/{product_name}.csv"
-        # hcho_lat_mean_path = f"./plt_data/lat_mean_hcho/{product_name}.csv"
-        # reg_hcho_ss_path = f"./plt_data/reg_hcho_ss/{product_name}.csv"
-
-        # if not os.path.exists(glob_hcho_ann_path):
-        # glob_hcho_ann.to_csv(glob_hcho_ann_path)
-        # if not os.path.exists(reg_hcho_ann_path):
-        #     reg_hcho_ann.to_csv(reg_hcho_ann_path)
-        # if not os.path.exists(hcho_lat_mean_path):
-        #     hcho_lat_mean.to_csv(hcho_lat_mean_path)
-        # if not os.path.exists(reg_hcho_ss_path):
-        #     reg_hcho_ss.to_csv(reg_hcho_ss_path)
-
-        return (
-            glob_hcho_ann,
-            reg_hcho_ann,
-            reg_hcho_ann_summer,
-            hcho_lat_mean,
-            reg_hcho_ss,
-        )
-
-
-class HCHO_hoque(HCHO):
-    def __init__(self, ds):
-        self.ds = ds
-        self.hcho = ds.hcho
-        self.cal_weights()
-        (
-            self.glob_ann,
-            self.reg_ann,
-            self.lat_mean,
-            self.reg_ss,
-        ) = HCHO.cal_glob_reg_hcho(self.hcho, self.weights)
+            return (glob_hcho_ann, reg_hcho_ann, reg_hcho_ss, hcho_lat_mean)
 
 
 class HCHO_maxdoas:
-    def __init__(self, file_path, max_doas_coords):
+    def __init__(self, file_path, max_doas_coords, layer_used=15):
         print(file_path)
 
         self.max_doas_coords = max_doas_coords
@@ -451,7 +540,7 @@ class HCHO_maxdoas:
         if "hcho" not in list(self.ds.data_vars):
             self.ds = self.ds.rename({list(self.ds.data_vars.keys())[0]: "hcho"})
 
-        # self.ds = self.ds.sel(layer=(self.ds.layer.isin(np.arange(5))))
+        self.ds = self.ds.sel(layer=(self.ds.layer.isin(np.arange(layer_used))))
         print("No. of Layers:", self.ds.layer.shape)
         self.ds = self.ds.sum("layer")
 
@@ -474,6 +563,14 @@ class HCHO_maxdoas:
                 .groupby("time")
                 .mean()
             )
+
+
+class HCHO_hoque(HCHO):
+    def __init__(self, ds):
+        self.ds = ds
+        self.hcho = ds.hcho
+        self.cal_weights()
+        (_, self.reg_ann, self.reg_ss, _) = HCHO.ann_ss_reg(self.hcho, self.weights)
 
 
 def notused_load_hoque_aked_nc():
@@ -501,4 +598,3 @@ def notused_load_hoque_aked_nc():
 
 # chaser_hcho = prep_hcho_chaser(all_hcho_chaser_paths)
 # tropomi_hcho = prep_hcho_tropomi()
-# %%

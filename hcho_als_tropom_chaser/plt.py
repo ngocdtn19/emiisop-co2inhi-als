@@ -17,7 +17,6 @@ from max_doas import *
 # AKED_CHASER_HCHO SETTING
 ORG_CHASER_DIR = "/mnt/dg3/ngoc/CHASER_output"
 AKED_DIR = "/mnt/dg3/ngoc/emiisop_co2inhi_als/data/hcho_sat_ak_applied"
-SAT_DIR = f"/mnt/dg3/ngoc/obs_data"
 
 SAT_NAMES = ["TROPO", "OMI"]
 # CASES = [f.split("/")[-1] for f in glob(f"{ORG_CHASER_DIR}/*2023_*")]
@@ -28,8 +27,32 @@ CASES = [
     "MEGANpft20012023_nudg",
     "UKst20012023_nudg",
     "MIXpft20012023_nudg",
+    "BVOCoff20012023_nudg",
     "OBS",
-    # "BVOCoff20012023_nudg",
+]
+BASE_CASE = "VISITst20012023_nudg"
+OFF_CASE = "BVOCoff20012023_nudg"
+SAT_CASE = ["OMI", "TROPOMI"]
+
+ROIS = [
+    # "AMZ",
+    # "ENA",
+    # "SAF",
+    # "MED",
+    # "CEU",
+    # "EAS",
+    # "SAS",
+    # "SEA",
+    # "REMOTE_PACIFIC",
+    "Amazonia",
+    "S-E US",
+    "Mato Grosso",
+    "Indonesia",
+    "South China",
+    "C_Africa",
+    "N_Africa",
+    "S_Africa",
+    "NAU",
 ]
 
 colors = [
@@ -49,7 +72,10 @@ colors = [
 ]
 
 
-def list_all_files(base_dir, sat_ver, cases=CASES, config_name="ak_assign"):
+def list_all_files(base_dir, sat_ver, cases=CASES, config_name="assign_aked_35L"):
+    print(f"Searching in {base_dir}")
+    print(f"for {sat_ver}")
+    print(f"with config {config_name}")
     all_files = []
     for root, dirs, files in os.walk(base_dir):
         for file in files:
@@ -61,43 +87,37 @@ def list_all_files(base_dir, sat_ver, cases=CASES, config_name="ak_assign"):
     return all_files
 
 
-def load_hcho(sat_name, sat_ver):
+def load_hcho(sat_name, sat_ver, layer_used):
 
-    # SATELLITE SETTING
-
-    if sat_ver == "v1":
-        time_omi = "20050101-20231201"
-        time_tropo = "20180601-20240701"
-    else:
-        time_omi = "20050101-20221231"
-        time_tropo = "20180507-20231231"
-
-    M_NAME_OMI = f"mon_BIRA_OMI_HCHO_L3_{sat_ver}"
-    M_NAME_TROPO = f"mon_TROPOMI_HCHO_L3_{sat_ver}"
-
-    OMI_FILE = f"{SAT_DIR}/{M_NAME_OMI}/EXTRACT/hcho_AERmon_{M_NAME_OMI}_historical_gn_{time_omi}.nc"
-    TROPO_FILE = f"{SAT_DIR}/{M_NAME_TROPO}/EXTRACT/hcho_AERmon_{M_NAME_TROPO}_historical_gn_{time_tropo}.nc"
-
-    files = list_all_files(AKED_DIR, sat_ver, config_name="ak_assign")
+    files = list_all_files(AKED_DIR, sat_ver, config_name="assign_aked_35L")
     print(files)
 
-    obs = HCHO(TROPO_FILE) if sat_name == "tropo" else HCHO(OMI_FILE)
+    obs = HCHO(get_sat_file(sat_name, sat_ver), sat_filter=None)
 
     ak_files = [f for f in files if sat_name in f]
     interp_files = [f for f in ak_files if "/sat_interp/" in f]
 
-    hcho_interp = {Path(f).parents[1].name: HCHO(f) for f in interp_files}
-    hcho_interp["OBS"] = obs
+    hcho_interp = {
+        Path(f).parents[1].name: HCHO(f, sat_filter=sat_name, layer_used=layer_used)
+        for f in interp_files
+    }
+    obs_case = "OMI"
+    if sat_name == "tropo":
+        obs_case = "TROPOMI"
+    hcho_interp[obs_case] = obs
 
     return hcho_interp
 
 
-def load_hcho_maxdoas(sat_name):
+def load_hcho_maxdoas(sat_name, layer_used):
 
-    files = list_all_files(AKED_DIR, "v2", config_name="maxdoas")
+    files = list_all_files(AKED_DIR, "v2", config_name="assign_aked_35L")
     files_by_sat = [f for f in files if sat_name in f]
     hcho = {
-        Path(f).parents[1].name: HCHO_maxdoas(f, MAX_DOAS_COORDS).hcho_at_maxdoas
+        Path(f)
+        .parents[1]
+        .name: HCHO_maxdoas(f, MAX_DOAS_COORDS, layer_used=layer_used)
+        .hcho_at_maxdoas
         for f in files_by_sat
     }
     # hcho[sat_name] = obs
@@ -106,18 +126,23 @@ def load_hcho_maxdoas(sat_name):
     return hcho
 
 
-# interp_omi_v1 = load_hcho("omi", "v1")
-# interp_omi_v2 = load_hcho("omi", "v2")
-# interp_tropo_v1 = load_hcho("tropo", "v1")
-# interp_tropo_v2 = load_hcho("tropo", "v2")
+def get_sat_case(list_cases):
+    for c in list_cases:
+        if "OMI" in c:
+            return c
+    return None
+
+
+# interp_omi_v2 = load_hcho("omi", "v2", layer_used=14)
+# interp_tropo_v2 = load_hcho("tropo", "v2", layer_used=14)
 
 
 # %%
-def plt_maxdoas(sat_name="omi", norm=True, summer_only=False):
-    hcho = load_hcho_maxdoas(sat_name)
+def plt_maxdoas(sat_name="omi", layer_used=15, norm=True, summer_only=False):
+    hcho = load_hcho_maxdoas(sat_name, layer_used)
 
-    f_annual, ax_annual = plt.subplots(3, 1, figsize=(6, 12), layout="constrained")
-    f_ss, ax_ss = plt.subplots(3, 1, figsize=(6, 8), layout="constrained")
+    f_annual, ax_annual = plt.subplots(3, 1, figsize=(4, 8), layout="constrained")
+    f_ss, ax_ss = plt.subplots(3, 1, figsize=(4, 8), layout="constrained")
 
     for i, c in enumerate(hcho.keys()):
         df_case = hcho[c]
@@ -161,35 +186,19 @@ def plt_maxdoas(sat_name="omi", norm=True, summer_only=False):
         )
 
 
-def plt_reg(hcho, norm=True, unit=None, summer_only=True):
+def plt_reg(hcho, norm=False, unit=None, sslat=False):
 
-    list_regions = [
-        "AMZ",
-        "ENA",
-        # "SAF",
-        # "MED",
-        # "CEU",
-        "EAS",
-        # "SAS",
-        "SEA",
-        "NAU",
-        "Indonesia",
-        "C_Africa",
-        "N_Africa",
-        "S_Africa",
-        # "REMOTE_PACIFIC",
-    ]
-
-    interested_case = CASES
+    interested_case = list(hcho.keys())
+    interested_case = [c for c in interested_case if c != "BVOCoff20012023_nudg"]
 
     ylim_dict = {
-        "AMZ": (0, 25),
-        "ENA": (0, 20),
         # "SAF": (0, 15),
         # "MED": (0, 15),
         # "CEU": (0, 15),
-        "EAS": (0, 20),
         # "SAS": (0, 15),
+        "AMZ": (0, 25),
+        "ENA": (0, 20),
+        "EAS": (0, 20),
         "SEA": (0, 15),
         "NAU": (0, 15),
         "Indonesia": (0, 15),
@@ -204,25 +213,23 @@ def plt_reg(hcho, norm=True, unit=None, summer_only=True):
 
         fig, axis = plt.subplots(3, 3, figsize=(3 * 3, 3 * 3), layout="constrained")
 
-        for i, r in enumerate(list_regions):
+        for i, r in enumerate(ROIS):
             ri, ci = i // 3, i % 3
             ax = axis[ri, ci]
             for j, c in enumerate(interested_case):
-                ds = hcho[c].reg_ss
+                df = hcho[c].reg_ss
                 if mode == "ann":
-                    ds = hcho[c].reg_ann
-                    if summer_only:
-                        ds = hcho[c].reg_ann_summer
-                reg_df = ds[[index, r]].set_index(index).rename(columns={r: c})
+                    df = hcho[c].reg_ann
+                    if sslat:
+                        df = hcho[c].reg_ann_sslat
+                reg_df = (
+                    df[[index, r]]
+                    .set_index(index)
+                    .rename(columns={r: c.replace("20012023_nudg", "")})
+                )
                 if norm:
                     reg_df[c] = min_max_normalize(reg_df[c])
-                sns.lineplot(
-                    reg_df,
-                    ax=ax,
-                    palette=[colors[j]],
-                    markers=True,
-                    lw=2,
-                )
+                sns.lineplot(reg_df, ax=ax, palette=[colors[j]], markers=True, lw=2)
             # Set y-axis limit
             # if r in ylim_dict:
             #     ax.set_ylim(ylim_dict[r])
@@ -251,32 +258,131 @@ def plt_reg(hcho, norm=True, unit=None, summer_only=True):
         )
 
 
-def plt_metric_reg(hcho_dict):
+# Plot regional contributions of BVOC emissions to HCHO
+def plt_reg_bvoc_contri(hcho, norm=True, unit=None, sslat=True):
+    list_regions = [
+        "Amazonia",
+        "S-E US",
+        "Mato Grosso",
+        "Indonesia",
+        "South China",
+        "C_Africa",
+        "N_Africa",
+        "S_Africa",
+        "NAU",
+    ]
+    interested_case = list(hcho.keys())
+
+    for mode in ["ss", "ann"]:
+        index = "month" if mode == "ss" else "year"
+        fig, axis = plt.subplots(3, 3, figsize=(9, 9), layout="constrained")
+
+        for i, r in enumerate(list_regions):
+            ri, ci = i // 3, i % 3
+            ax = axis[ri, ci]
+
+            for j, case in enumerate(interested_case):
+                if case == OFF_CASE:
+                    continue
+                # Select time period
+                ds = (
+                    hcho[case].reg_ss
+                    if mode == "ss"
+                    else (hcho[case].reg_ann_sslat if sslat else hcho[case].reg_ann)
+                )
+                reg_df = ds[[index, r]].set_index(index).rename(columns={r: case})
+
+                # Subtract BVOCoff (if applicable)
+                if case not in SAT_CASE:
+                    ds_off = (
+                        hcho[OFF_CASE].reg_ss
+                        if mode == "ss"
+                        else (
+                            hcho[OFF_CASE].reg_ann_sslat
+                            if sslat
+                            else hcho[OFF_CASE].reg_ann
+                        )
+                    )
+                    reg_off = (
+                        ds_off[[index, r]].set_index(index).rename(columns={r: case})
+                    )
+                    reg_df[case] = reg_df[case] - reg_off[case]
+
+                if norm:
+                    reg_df[case] = min_max_normalize(reg_df[case])
+
+                sns.lineplot(
+                    x=reg_df.index,
+                    y=reg_df[case],
+                    ax=ax,
+                    label=case.replace("20012023_nudg", ""),
+                    color=colors[j],
+                    lw=2,
+                    marker="o",
+                )
+
+            # Axis settings
+            if unit is None:
+                unit = "(\u00d710$^{15}$ molec.cm$^{-2}$)"
+            ax.set_ylabel(unit)
+            ax.set_title(f"{r}")
+            ax.get_legend().remove()
+
+            if mode == "ss":
+                ax.set_xlabel("Month")
+                ax.set_xticks(np.arange(1, 13))
+            else:
+                ax.set_xlabel("Year")
+
+            if ri < 2:
+                ax.set_xlabel("")
+
+            # Optional: set y-axis limits if needed
+            # if r in ylim_dict:
+            #     ax.set_ylim(ylim_dict[r])
+
+        # Global legend
+        handles, labels = ax.get_legend_handles_labels()
+        fig.legend(
+            handles,
+            labels,
+            ncol=4,
+            loc="center",
+            bbox_to_anchor=(0.5, -0.06),
+        )
+
+
+def plt_metric_reg(hcho_dict, bvoc_contri=False):
 
     list_case = list(hcho_dict.keys())
-    list_reg = list(hcho_dict[list_case[0]].reg_ann.keys())
-    R = {"model": list_case[:-1]}
-    rmse = {"model": list_case[:-1]}
-    trend = {"model": list_case}
-    obs_c = list_case[-1]
+    obs_c = get_sat_case(list_case)
+
+    list_reg = ROIS
+    R = {"model": [c for c in list_case if c not in [obs_c, OFF_CASE]]}
+    rmse = {"model": [c for c in list_case if c not in [obs_c, OFF_CASE]]}
+    trend = {"model": [c for c in list_case if c not in [OFF_CASE]]}
 
     for reg in list_reg:
-        if reg != "REMOTE_PACIFIC":
-            R[reg] = []
-            rmse[reg] = []
-            for c in list_case[:-1]:
-
+        R[reg] = []
+        rmse[reg] = []
+        for c in list_case:
+            if c not in [obs_c, OFF_CASE]:
                 model_reg = hcho_dict[c].reg_ann[reg]
                 obs_reg = hcho_dict[obs_c].reg_ann[reg]
+                if bvoc_contri:
+                    model_reg = model_reg - hcho_dict[OFF_CASE].reg_ann[reg]
 
-                # print(reg, c)
                 R[reg].append(pearsonr(model_reg, obs_reg)[0])
                 rmse[reg].append(np.sqrt(mse(obs_reg, model_reg)))
 
-            trend[reg] = []
-            trend[f"{reg}_sig"] = []
-            for c in list_case:
+        trend[reg] = []
+        trend[f"{reg}_sig"] = []
+        for c in list_case:
+            if c != OFF_CASE:
                 hcho_reg = hcho_dict[c].reg_ann[reg]
+                if bvoc_contri:
+                    hcho_reg = hcho_reg - hcho_dict[OFF_CASE].reg_ann[reg]
+
                 trend_dict = pymk.original_test(hcho_reg, alpha=0.05)
                 trend[reg].append(trend_dict.slope)
                 trend[f"{reg}_sig"].append(0 if not trend_dict.h else 1)
@@ -284,275 +390,211 @@ def plt_metric_reg(hcho_dict):
     rmse = pd.DataFrame.from_dict(rmse).round(2)
     R = pd.DataFrame.from_dict(R).round(2)
     trend = pd.DataFrame.from_dict(trend).round(2)
+
+    tits = ["RMSE", "R", "Linear Trend"]
+    for i, ds in enumerate([rmse, R, trend]):
+        ds["model"] = ds["model"].apply(lambda x: x.replace("20012023_nudg", ""))
+        ds.set_index("model", inplace=True)
+        ds.index.name = "Model"
+        ds = ds[[col for col in ds.columns if "sig" not in col]]
+
+        fig = plt.figure(figsize=(10, 10))
+        sns.heatmap(ds.T, annot=True, cmap="YlGnBu")
+        plt.title(tits[i], fontsize=16)
+        plt.xticks(rotation=15)
+
     return rmse, R, trend
 
 
-def plt_map_mean_ss(hcho_interp, hcho_nointerp, sat_name):
-    ss_months = [[12, 1, 2], [6, 7, 8]]
-    seasons = ["DJF", "JJA"]
-    # plotting vars
-    cmaps = "bwr"
-    vmins = -100
-    vmaxs = 100
-    unit = "[%]"
-    levels = 7
+def plt_mean_ann(hcho, sslat=False):
 
-    data_tits = ["Sat_Interp", "No_Interp"]
-    for k, hcho in enumerate([hcho_interp, hcho_nointerp]):
-        obs = hcho["OBS"].hcho
+    cases = list(hcho.keys())
+    obs_c = get_sat_case(cases)
 
-        for s, months in enumerate(ss_months):
-            cases = list(hcho_interp.keys())[::-1][1:]
-            rows, cols = len(cases) // 2, 2
-            fig, axis = plt.subplots(
-                rows,
-                cols,
-                figsize=(4 * 2, 2.5 * 3),
-                layout="constrained",
-                subplot_kw=dict(projection=ccrs.PlateCarree()),
-            )
+    rows, cols = 4, 2
+    fig, axis = plt.subplots(
+        rows,
+        cols,
+        figsize=(8 * 2, 5 * 4),
+        layout="constrained",
+        subplot_kw=dict(projection=ccrs.PlateCarree()),
+    )
+    unit = "(\u00d710$^{15}$ molec.cm$^{-2}$)"
 
-            ss_obs = obs.sel(time=(obs.time.dt.month.isin(months))).mean(
-                "time", skipna=True
-            )
+    cases.remove(obs_c)
+    cases.remove(OFF_CASE)
+    cases.insert(0, obs_c)
+    cases.insert(2, "VISITst20012023_nudg")
 
-            for j, c in enumerate(cases):
-                ri, ci = j // cols, j % cols
-                ax = axis[ri, ci]
+    print(cases)
 
-                chaser = hcho[c].hcho
-                ss_chaser = chaser.sel(time=(chaser.time.dt.month.isin(months))).mean(
-                    "time", skipna=True
-                )
+    mappable_group1 = None  # for j < 2
+    mappable_group2 = None  # for j > 1
 
-                ss_diff = (ss_chaser - ss_obs) * 1e2 / ss_obs
+    obs_ds = hcho[obs_c].hcho.mean("time", skipna=True)
+    if sslat:
+        obs_ds = hcho[obs_c].hcho_sslat.mean("year", skipna=True)
 
-                add_colorbar = True if ri > 1 else False
-                cbar_kwargs = (
-                    {
-                        "orientation": "horizontal",
-                        "shrink": 0.8,
-                        "label": unit,
-                    }
-                    if add_colorbar
-                    else {}
-                )
+    for j, c in enumerate(cases):
 
-                ss_diff.plot(
+        ds = hcho[c].hcho.mean("time", skipna=True)
+        if sslat:
+            ds = hcho[c].hcho_sslat.mean("year", skipna=True)
+
+        if j > 1:
+            ds = (ds - obs_ds) * 100 / obs_ds
+
+        ri, ci = j // cols, j % cols
+
+        ax = axis[ri, ci]
+
+        im = ds.plot(
+            ax=ax,
+            cmap="Spectral_r" if j < 2 else "bwr",
+            add_colorbar=False,
+            vmin=0 if j < 2 else -100,
+            vmax=15 if j < 2 else 100,
+        )
+        if j < 2 and mappable_group1 is None:
+            mappable_group1 = im
+        if j > 1 and mappable_group2 is None:
+            mappable_group2 = im
+
+        replace_str = "" if j < 2 else " (OBS subtracted)"
+        tit = c.replace("20012023_nudg", replace_str)
+        ax.set_title(tit, fontsize=18)
+        ax.coastlines()
+        ax.set_extent([-179.5, 179.5, -80, 80], crs=ccrs.PlateCarree())
+    # Turn off unused axes
+    cbar_ax1 = fig.add_axes([0.25, 0.77, 0.5, 0.01])  # [left, bottom, width, height]
+    cbar1 = fig.colorbar(mappable_group1, cax=cbar_ax1, orientation="horizontal")
+    cbar1.set_label(unit, fontsize=16)
+    cbar1.ax.tick_params(labelsize=14)
+
+    # Add colorbar for j > 1 (anomalies)
+    cbar_ax2 = fig.add_axes([0.25, 0.02, 0.5, 0.01])
+    cbar2 = fig.colorbar(mappable_group2, cax=cbar_ax2, orientation="horizontal")
+    cbar2.set_label("% Difference from OBS", fontsize=16)
+    cbar2.ax.tick_params(labelsize=14)
+
+
+def plt_map(hcho_dict, score="corr", sslat=False):
+    fig, axis = plt.subplots(
+        3,
+        2,
+        figsize=(8 * 2, 5 * 3),
+        layout="constrained",
+        subplot_kw=dict(projection=ccrs.PlateCarree()),
+    )
+
+    interested_case = list(hcho_dict.keys())
+    obs_c = get_sat_case(interested_case)
+    obs_ds = hcho_dict[obs_c].hcho
+    obs_ds = obs_ds.groupby(obs_ds.time.dt.year).mean("time")
+
+    if sslat:
+        obs_ds = hcho_dict[obs_c].hcho_sslat
+
+    for j, c in enumerate(interested_case):
+        if c not in [obs_c, "BVOCoff20012023_nudg"]:
+            ri, ci = j // 2, j % 2
+            ax = axis[ri, ci]
+            add_colorbar = False
+
+            model_ds = hcho_dict[c].hcho
+            model_ds = model_ds.groupby(model_ds.time.dt.year).mean("time")
+            if sslat:
+                model_ds = hcho_dict[c].hcho_sslat
+
+            if score == "corr":
+                corr, sig = map_corr_by_time(model_ds, obs_ds)
+
+                cb = corr.plot(
                     ax=ax,
-                    cmap=cmaps,
-                    levels=levels,
-                    vmin=vmins,
-                    vmax=vmaxs,
+                    transform=ccrs.PlateCarree(),
+                    cmap="RdBu_r",
+                    vmin=-1,
+                    vmax=1,
                     add_colorbar=add_colorbar,
-                    cbar_kwargs=cbar_kwargs,
                 )
 
-                ax.set_title(c, fontsize=14)
-                ax.coastlines()
-                ax.set_extent([-179.5, 179.5, -80, 80], crs=ccrs.PlateCarree())
-                ax.set_xticks([])
-                ax.set_xlabel("")
-                ax.set_yticks([])
-                ax.set_ylabel("")
-            plt.suptitle(
-                f"{data_tits[k]}_CHASER-{sat_name} ({seasons[s]})",
-                fontsize=16,
-                fontweight="bold",
-            )
-
-
-def plt_map_corr(hcho_interp, hcho_nointerp, sat_name):
-    data_tits = ["Sat_Interp", "No_Interp"]
-    modes = ["ss", "ann"]
-    tits = ["Seasonal", "Interannual"]
-    cmaps = "Blues"
-    levels = 11
-    vmins = 0
-    vmaxs = 1
-    unit = "Pearson R"
-    for k, hcho in enumerate([hcho_interp, hcho_nointerp]):
-        obs = hcho["OBS"].hcho
-        cases = list(hcho_interp.keys())[::-1][1:]
-        for i, m in enumerate(modes):
-            rows, cols = len(cases) // 2, 2
-            fig, axis = plt.subplots(
-                rows,
-                cols,
-                figsize=(4 * 2, 2.5 * 3),
-                layout="constrained",
-                subplot_kw=dict(projection=ccrs.PlateCarree()),
-            )
-            for j, c in enumerate(cases):
-                ri, ci = j // cols, j % cols
-                ax = axis[ri, ci]
-
-                chaser = hcho[c].hcho
-                corr = map_corr_by_time(chaser, obs, m)
-                add_colorbar = True if ri > 1 else False
-                cbar_kwargs = (
-                    {
-                        "orientation": "horizontal",
-                        "shrink": 0.8,
-                        "label": unit,
-                    }
-                    if add_colorbar
-                    else {}
+                # Stippling
+                lat, lon = np.meshgrid(corr["lat"], corr["lon"], indexing="ij")
+                ax.plot(
+                    lon[sig.values],
+                    lat[sig.values],
+                    "k.",
+                    markersize=0.5,
+                    transform=ccrs.PlateCarree(),
                 )
-                corr.plot(
+
+            elif score == "rmse":
+                rmse = compute_rmse(model_ds, obs_ds)
+
+                cb = rmse.plot(
                     ax=ax,
-                    cmap=cmaps,
-                    levels=levels,
-                    vmin=vmins,
-                    vmax=vmaxs,
+                    transform=ccrs.PlateCarree(),
+                    cmap="rainbow",
+                    vmin=0,
+                    vmax=100,
                     add_colorbar=add_colorbar,
-                    cbar_kwargs=cbar_kwargs,
                 )
-                ax.set_title(c, fontsize=14)
-                ax.coastlines()
-                ax.set_extent([-179.5, 179.5, -80, 80], crs=ccrs.PlateCarree())
-                ax.set_xticks([])
-                ax.set_xlabel("")
-                ax.set_yticks([])
-                ax.set_ylabel("")
-            plt.suptitle(
-                f"{tits[i]} Corr. {data_tits[k]}_CHASER-{sat_name}",
-                fontsize=16,
-                fontweight="bold",
-            )
+
+            # Colorbar
+            ax.coastlines()
+            ax.set_title(c.replace("20012023_nudg", ""), fontsize=18)
+    # Add a single shared colorbar at bottom center
+    label = "Pearson R" if score == "corr" else "Normalized RMSE (%)"
+    cbar_ax = fig.add_axes([0.2, 0.02, 0.6, 0.01])  # [left, bottom, width, height]
+    cbar = fig.colorbar(cb, cax=cbar_ax, orientation="horizontal", label=label)
+    cbar.set_label(label, fontsize=16)
+    cbar.ax.tick_params(labelsize=14)
 
 
-def old_plt_map_mean_year():
+def plt_mk(hcho, sslat=False):
     fig, axis = plt.subplots(
         4,
-        5,
-        figsize=(3.75 * 5, 2 * 4),
+        2,
+        figsize=(8 * 2, 5 * 4),
         layout="constrained",
         subplot_kw=dict(projection=ccrs.PlateCarree()),
     )
-    for j, year in enumerate(np.arange(2020, 2024)):
 
-        tropomi_y = tropomi.sel(time=(tropomi.time.dt.year == year)).mean("time")
-        inhi_chaser_y = inhi_chaser.sel(time=(inhi_chaser.time.dt.year == year)).mean(
-            "time"
-        )
-        no_inhi_chaser_y = no_inhi_chaser.sel(
-            time=(no_inhi_chaser.time.dt.year == year)
-        ).mean("time")
+    interested_case = list(hcho.keys())
 
-        diff_inhi_year = (inhi_chaser_y - tropomi_y) * 1e2 / tropomi_y
-        diff_no_inhi_year = (no_inhi_chaser_y - tropomi_y) * 1e2 / tropomi_y
+    for j, c in enumerate(interested_case):
+        if c != "BVOCoff20012023_nudg":
 
-        titles = [
-            f"TROPOMI ({year})",
-            f"Inhi-CHASER ({year})",
-            f"NoInhi-CHASER ({year})",
-            f"Inhi-CHASER-TROPOMI ({year})",
-            f"NoInhi-CHASER-TROPOMI ({year})",
-        ]
-        cmaps = ["rainbow", "rainbow", "rainbow", "bwr", "bwr"]
-        vmins = [0, 0, 0, -150, -150]
-        vmaxs = [20, 20, 20, 150, 150]
-        add_colorbar = True if j == 3 else False
+            mk_ds = hcho[c].hcho_ann_mk.tcolhcho_ann_trend
+            if sslat:
+                mk_ds = hcho[c].hcho_ann_sslat_mk.tcolhcho_ann_trend
 
-        for i, ds in enumerate(
-            [
-                tropomi_y,
-                inhi_chaser_y,
-                no_inhi_chaser_y,
-                diff_inhi_year,
-                diff_no_inhi_year,
-            ]
-        ):
+            ri, ci = j // 2, j % 2
+            ax = axis[ri, ci]
 
-            ci = i
-            ax = axis[j, ci]
-
-            unit = (
-                "HCHO total col. (\u00d710$^{15}$ molec.cm$^{-2}$)" if ci < 3 else "[%]"
-            )
-            cbar_kwargs = (
-                {
-                    "orientation": "horizontal",
-                    "shrink": 0.6,
-                    "label": unit,
-                }
-                if add_colorbar
-                else {}
-            )
-            levels = 21 if i < 3 else 5
-
-            ds.plot(
+            cb = mk_ds.plot(
                 ax=ax,
-                cmap=cmaps[ci],
-                levels=levels,
-                vmin=vmins[ci],
-                vmax=vmaxs[ci],
-                add_colorbar=add_colorbar,
-                cbar_kwargs=cbar_kwargs,
+                transform=ccrs.PlateCarree(),
+                cmap="RdBu_r",
+                vmin=-0.2,
+                vmax=0.2,
+                add_colorbar=False,
             )
-
-            ax.set_title(titles[i], fontsize=14)
+            # Colorbar
             ax.coastlines()
-            ax.set_extent([-179.5, 179.5, -80, 80], crs=ccrs.PlateCarree())
-            ax.set_xticks([])
-            ax.set_xlabel("")
-            ax.set_yticks([])
-            ax.set_ylabel("")
+            ax.set_title(c.replace("20012023_nudg", ""), fontsize=18)
 
+    label = "MK trend"
+    cbar_ax = fig.add_axes([0.2, 0.01, 0.6, 0.01])  # [left, bottom, width, height]
+    cbar = fig.colorbar(cb, cax=cbar_ax, orientation="horizontal", label=label)
+    cbar.set_label(label, fontsize=16)
+    cbar.ax.tick_params(labelsize=14)
 
-def plt_chaser_tropo_hcho_corr():
-    fig, axis = plt.subplots(
-        2,
-        2,
-        figsize=(4 * 2, 4),
-        layout="constrained",
-        subplot_kw=dict(projection=ccrs.PlateCarree()),
-    )
-    cmap = "coolwarm"
-    hcho.tropmomi_inhi_chaser_ss_corr.plot(
-        ax=axis[0][0], cmap=cmap, vmin=-1, vmax=1, add_colorbar=False
-    )
-    hcho.tropmomi_inhi_chaser_ann_corr.plot(
-        ax=axis[0][1], cmap=cmap, vmin=-1, vmax=1, add_colorbar=False
-    )
+    axes = axis.ravel() if hasattr(axis, "ravel") else [axis]
 
-    hcho.tropmomi_no_inhi_chaser_ss_corr.plot(
-        ax=axis[1][0],
-        cmap=cmap,
-        vmin=-1,
-        vmax=1,
-        cbar_kwargs={
-            "orientation": "horizontal",
-            "shrink": 0.6,
-            "label": "Pearson R",
-        },
-    )
-    hcho.tropmomi_no_inhi_chaser_ann_corr.plot(
-        ax=axis[1][1],
-        cmap=cmap,
-        vmin=-1,
-        vmax=1,
-        cbar_kwargs={
-            "orientation": "horizontal",
-            "shrink": 0.6,
-            "label": "Pearson R",
-        },
-    )
-
-    axis[0][0].set_title("Inhi Seasonal Corr.", fontsize=14)
-    axis[0][1].set_title("Inhi Annual Corr.", fontsize=14)
-    axis[1][0].set_title("NoInhi Seasonal Corr.", fontsize=14)
-    axis[1][1].set_title("NoInhi Annual Corr.", fontsize=14)
-
-    for i in [0, 1]:
-        for j in [0, 1]:
-            axis[i][j].coastlines()
-            axis[i][j].set_extent([-179.5, 179.5, -80, 80], crs=ccrs.PlateCarree())
-            axis[i][j].set_xticks([])
-            axis[i][j].set_xlabel("")
-            axis[i][j].set_yticks([])
-            axis[i][j].set_ylabel("")
+    for ax in axes:
+        if not ax.has_data():  # Checks if anything was plotted
+            ax.set_visible(False)
 
 
 def plt_ann_glob():
@@ -601,157 +643,6 @@ def plt_ann_glob():
         print(f"R:{pearson_r:.2f}")
         print(f"RMSE:{rmse:.2f}")
         print(f"trend chaser:{trend_chaser:.2f}")
-
-
-def old_plt_reg(hcho, ax, case_name, mode="ss"):
-    list_regions = ["AMZ", "ENA", "SAF", "MED", "CEU", "EAS", "SAS", "SEA", "NAU"]
-
-    if mode == "ann":
-        chaser_reg = hcho.no_inhi_chaser_reg_ann
-        tropomi_reg = hcho.tropomi_reg_ann
-        index = "year"
-    else:
-        chaser_reg = hcho.inhi_chaser_reg_ss
-        tropomi_reg = hcho.tropomi_reg_ss
-        index = "month"
-
-    fig, axis = plt.subplots(3, 3, figsize=(3 * 3, 3 * 3), layout="constrained")
-    df_stats = {
-        "reg": list_regions,
-        "r_inhi": [],
-        "r_no_inhi": [],
-        "rmse_inhi": [],
-        "rmse_no_inhi": [],
-    }
-
-    for i, reg in enumerate(list_regions):
-        ri, ci = i // 3, i % 3
-        ax = axis[ri, ci]
-
-        reg_df_tropomi = (
-            tropomi_reg[[index, reg]].set_index(index).rename(columns={reg: "TROPOMI"})
-        )
-
-        # legend = True if ri == 0 and ci == 2 else False
-        # legend = False
-        sns.lineplot(
-            reg_df_tropomi,
-            ax=ax,
-            palette=[colors[1]],
-            markers=True,
-            lw=2,
-        )
-        handles, labels = ax.get_legend_handles_labels()
-        ax.get_legend().remove()
-
-        # ax.set_xlim(min(x) - 1, max(x) + 1)
-        ax.set_ylim(2, 12)
-        if ri == 0 and ci == 0:
-            ax.set_ylim(2, 20)
-
-        ax.set_xlabel("Year")
-        if mode == "ss":
-            ax.set_xlabel("Month")
-            ax.set_xticks(np.arange(1, 13))
-        if ri < 2:
-            ax.set_xlabel("")
-        ax.set_ylabel("(\u00d710$^{15}$ molec.cm$^{-2}$)")
-
-        hcho_inhi_chaser = reg_df_inhi["Inhi-CHASER"].values
-        hcho_no_inhi_chaser = reg_df_no_inhi["NoInhi-CHASER"].values
-        hcho_tropomi = reg_df_tropomi["TROPOMI"].values
-
-        r_inhi, _ = pearsonr(hcho_inhi_chaser, hcho_tropomi)
-        r_no_inhi, _ = pearsonr(hcho_no_inhi_chaser, hcho_tropomi)
-
-        rmse_inhi = np.sqrt(mse(hcho_tropomi, hcho_inhi_chaser))
-        rmse_no_inhi = np.sqrt(mse(hcho_tropomi, hcho_no_inhi_chaser))
-
-        df_stats["r_inhi"].append(f"{r_inhi:.2f}")
-        df_stats["r_no_inhi"].append(f"{r_no_inhi:.2f}")
-        df_stats["rmse_inhi"].append(f"{rmse_inhi:.2f}")
-        df_stats["rmse_no_inhi"].append(f"{rmse_no_inhi:.2f}")
-
-        if mode == "ann":
-
-            res_inhi_chaser = pymk.original_test(hcho_inhi_chaser, alpha=0.05)
-            res_no_inhi_chaser = pymk.original_test(hcho_no_inhi_chaser, alpha=0.05)
-            res_tropomi = pymk.original_test(hcho_tropomi, alpha=0.05)
-
-            trend_inhi_chaser = round(res_inhi_chaser.slope, 2)
-            trend_no_inhi_chaser = round(res_no_inhi_chaser.slope, 2)
-            trend_tropomi = round(res_tropomi.slope, 2)
-
-            trend_inhi_chaser = (
-                trend_inhi_chaser if not res_inhi_chaser.h else f"{trend_inhi_chaser}*"
-            )
-            trend_no_inhi_chaser = (
-                trend_no_inhi_chaser
-                if not res_no_inhi_chaser.h
-                else f"{trend_no_inhi_chaser}*"
-            )
-            trend_tropomi = trend_tropomi if not res_tropomi.h else f"{trend_tropomi}*"
-
-            ax.text(2020, 3, trend_inhi_chaser, fontsize=12, color=colors[0])
-            ax.text(2021, 3, trend_no_inhi_chaser, fontsize=12, color=colors[2])
-            ax.text(2022, 3, trend_tropomi, fontsize=12, color=colors[1])
-
-        ax.set_title(f"{reg}")
-
-    fig.legend(
-        handles,
-        labels,
-        ncol=3,
-        loc="center",
-        bbox_to_anchor=(0.5, -0.02),
-    )
-
-    return pd.DataFrame.from_dict(df_stats)
-
-
-def plt_sudo(hcho):
-    # cases = list(hcho.keys())[::-1][:-1]
-    cases = list(hcho.keys())[::-1]
-    # for i, m in enumerate(modes):
-    rows, cols = len(cases) + 1 // 2, 2
-    fig, axis = plt.subplots(
-        rows,
-        cols,
-        figsize=(4 * 2, 2.5 * 4),
-        layout="constrained",
-        subplot_kw=dict(projection=ccrs.PlateCarree()),
-    )
-    unit = "(\u00d710$^{15}$ molec.cm$^{-2}$)"
-    for j, c in enumerate(cases):
-        ri, ci = j // cols, j % cols
-        ax = axis[ri, ci]
-        add_colorbar = True if ri > 2 else False
-        cbar_kwargs = (
-            {
-                "orientation": "horizontal",
-                "shrink": 0.8,
-                "label": unit,
-            }
-            if add_colorbar
-            else {}
-        )
-        chaser = hcho[c].hcho
-        chaser = chaser.sel(time=(chaser.time.dt.year == 2020)).mean("time")
-        chaser.plot(
-            ax=ax,
-            cmap="Spectral_r",
-            add_colorbar=add_colorbar,
-            cbar_kwargs=cbar_kwargs,
-            vmin=0,
-            vmax=15,
-        )
-        ax.set_title(c, fontsize=14)
-        ax.coastlines()
-        ax.set_extent([-179.5, 179.5, -80, 80], crs=ccrs.PlateCarree())
-    # Turn off unused axes
-    for j in range(len(cases), rows * cols):
-        ri, ci = j // cols, j % cols
-        axis[ri, ci].set_visible(False)
 
 
 def plt_check_AK():
